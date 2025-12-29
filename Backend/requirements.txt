@@ -1,2 +1,5 @@
 twilio==9.3.7
 colorama==0.4.6
+python-dotenv
+fastapi
+uvicorn
