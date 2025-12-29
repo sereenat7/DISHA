@@ -1,4 +1,24 @@
+# Environment variables and secrets
 .env
-*.log
-__pycache__/
-disha
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
+*.env
+
+# Also common variations
+.env.example  # Optional: ignore if it's a template with real values; usually commit this though
+secrets/
+config/secrets.*
+
+# Virtual environments (if using Python)
+env/
+venv/
+.venv/
+ENV/
+disha/
+
+# Node.js specific (if applicable)
+.env.local
+.env.*.local
