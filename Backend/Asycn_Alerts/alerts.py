@@ -251,3 +251,7 @@ if __name__ == "__main__":
     results = send_parallel_alerts(contacts, max_workers=5, num_call_attempts=5, wait_time_between_rounds=40)
     
     print_summary(results)
+
+
+
+    #alerts done
