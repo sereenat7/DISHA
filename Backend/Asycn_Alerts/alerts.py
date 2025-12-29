@@ -232,17 +232,17 @@ def print_summary(results):
 if __name__ == "__main__":
     contacts = [
         {
-            'phone': '+918850755760',
+            'phone': '+918850755760', #Joel Pawar
             'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
             'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA , Make sure you are safe'
         },
         {
-            'phone': '+919529685725',
+            'phone': '+919529685725', #Sereena Thomas
             'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
             'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA , Make sure you are safe'
         },
         {
-            'phone': '+919322945843',
+            'phone': '+919322945843', #Seane Dcosta
             'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
             'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA , Make sure you are safe'
         }

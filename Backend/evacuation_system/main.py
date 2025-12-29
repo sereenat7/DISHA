@@ -1,20 +1,18 @@
-from fastapi import FastAPI, HTTPException
+# evacuation_logic.py
 import httpx
 import uuid
 import math
-
-app = FastAPI(title="Dynamic OSM Evacuation Backend", version="1.0")
+import asyncio
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 
-# ----------------------------
-# UTILS
-# ----------------------------
 
-
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371
+def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the great-circle distance between two points on Earth (in kilometers).
+    """
+    R = 6371  # Earth radius in kilometers
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (
@@ -26,11 +24,10 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
-# ----------------------------
-# FETCH SAFE LOCATIONS
-# ----------------------------
-
-async def get_safe_locations(lat, lon, radius_km):
+async def get_safe_locations(lat: float, lon: float, radius_km: float):
+    """
+    Fetch safe locations (hospitals, shelters/bunkers, underground parking) around a point using Overpass API.
+    """
     radius_m = int(radius_km * 1000)
 
     query = f"""
@@ -44,82 +41,85 @@ async def get_safe_locations(lat, lon, radius_km):
     out body;
     """
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        res = await client.post(OVERPASS_URL, data=query)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(OVERPASS_URL, data=query)
 
-    if res.status_code != 200 or not res.text.strip():
+    if response.status_code != 200 or not response.text.strip():
         return []
 
-    data = res.json()
+    data = response.json()
     locations = []
 
-    for el in data.get("elements", []):
-        lat_ = el.get("lat")
-        lon_ = el.get("lon")
-        if not lat_ or not lon_:
+    for element in data.get("elements", []):
+        el_lat = element.get("lat")
+        el_lon = element.get("lon")
+        if el_lat is None or el_lon is None:
             continue
 
-        tags = el.get("tags", {})
-        name = tags.get("name", "Safe Location")
+        tags = element.get("tags", {})
+        name = tags.get("name", "Unnamed Safe Location")
 
+        # Categorize
         if tags.get("amenity") == "hospital":
             category = "hospitals"
         elif tags.get("amenity") == "shelter" or tags.get("building") == "bunker":
             category = "bunkers_shelters"
-        elif tags.get("amenity") == "parking":
+        elif tags.get("amenity") == "parking" and tags.get("parking") == "underground":
             category = "underground_parking"
         else:
             continue
 
         locations.append({
             "name": name,
-            "lat": lat_,
-            "lon": lon_,
+            "lat": el_lat,
+            "lon": el_lon,
             "category": category,
-            "distance": haversine(lat, lon, lat_, lon_)
+            "distance_km": haversine(lat, lon, el_lat, el_lon)
         })
 
     return locations
 
 
-# ----------------------------
-# ROUTING (REAL ROADS)
-# ----------------------------
-
-async def get_route(start_lat, start_lon, end_lat, end_lon):
+async def get_route(start_lat: float, start_lon: float, end_lat: float, end_lon: float):
+    """
+    Get real road route using OSRM (Open Source Routing Machine).
+    Returns distance, duration, and GeoJSON coordinates.
+    """
     url = (
         f"{OSRM_URL}/"
         f"{start_lon},{start_lat};{end_lon},{end_lat}"
         f"?overview=full&geometries=geojson"
     )
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        res = await client.get(url)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url)
 
-    if res.status_code != 200:
-        raise HTTPException(status_code=500, detail="Routing failed")
+    if response.status_code != 200:
+        raise Exception("Routing service failed")
 
-    route = res.json()["routes"][0]
+    route_data = response.json()["routes"][0]
 
     return {
-        "distance_m": round(route["distance"], 1),
-        "duration_s": round(route["duration"], 1),
-        "geometry": route["geometry"]["coordinates"]
+        "distance_m": round(route_data["distance"], 1),
+        "duration_s": round(route_data["duration"], 1),
+        "geometry": route_data["geometry"]["coordinates"]  # [[lon, lat], ...]
     }
 
 
-# ----------------------------
-# MAIN API
-# ----------------------------
-
-@app.post("/disaster/trigger")
-async def trigger_disaster(
-    user_id: str,
+async def find_evacuation_routes(
     user_lat: float,
     user_lon: float,
-    radius_km: float
+    radius_km: float = 10.0,
+    max_per_category: int = 2
 ):
+    """
+    Main logic: Find up to `max_per_category` nearest safe locations per category
+    and compute real road routes to them.
+    """
     safe_locations = await get_safe_locations(user_lat, user_lon, radius_km)
+
+    # Sort by distance
+    safe_locations.sort(key=lambda x: x["distance_km"])
 
     categories = {
         "hospitals": [],
@@ -127,33 +127,47 @@ async def trigger_disaster(
         "underground_parking": []
     }
 
-    # sort by distance
-    safe_locations.sort(key=lambda x: x["distance"])
-
     for loc in safe_locations:
-        if len(categories[loc["category"]]) >= 2:
+        category = loc["category"]
+        if len(categories[category]) >= max_per_category:
             continue
 
-        route = await get_route(
-            user_lat, user_lon,
-            loc["lat"], loc["lon"]
-        )
+        try:
+            route = await get_route(user_lat, user_lon, loc["lat"], loc["lon"])
+        except Exception as e:
+            # Skip if routing fails for this location
+            continue
 
-        categories[loc["category"]].append({
+        categories[category].append({
             "safe_location": loc["name"],
             "lat": loc["lat"],
             "lon": loc["lon"],
             "google_maps": f"https://www.google.com/maps?q={loc['lat']},{loc['lon']}",
+            "distance_km": round(loc["distance_km"], 2),
             "route": route
         })
 
+    alert_id = str(uuid.uuid4())
+
     return {
-        "alert_id": str(uuid.uuid4()),
-        "affected_users": 1,
-        "results": [
-            {
-                "user_id": user_id,
-                "routes": categories
-            }
-        ]
+        "alert_id": alert_id,
+        "results": {
+            "user_position": {"lat": user_lat, "lon": user_lon},
+            "search_radius_km": radius_km,
+            "routes": categories
+        }
     }
+
+
+# Example usage when running the file directly
+if __name__ == "__main__":
+    async def main():
+        # Example: Near central Berlin
+        result = await find_evacuation_routes(
+            user_lat=52.5200,
+            user_lon=13.4050,
+            radius_km=15.0
+        )
+        print(result)
+
+    asyncio.run(main())

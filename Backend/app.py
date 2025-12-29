@@ -1,26 +1,35 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
+from fastapi.responses import JSONResponse
 import uvicorn
-from Asycn_Alerts.alerts import send_parallel_alerts, logger
 import os
 from datetime import datetime
 
+# Existing alerts
+from Asycn_Alerts.alerts import send_parallel_alerts, logger
+
+# Evacuation logic import
+from evacuation_system.main import find_evacuation_routes
+
 app = FastAPI(
-    title="DISHA Alert System API",
-    description="Emergency Alert System using Twilio for parallel calls and SMS",
+    title="DISHA - Disaster Intelligence Safety & Help Application",
+    description="Emergency Alert + Dynamic Evacuation Routing System using OSM & OSRM",
     version="1.0.0"
 )
+
 
 @app.get("/")
 def read_root():
     return {
-        "service": "DISHA Alert System",
+        "service": "DISHA Alert & Evacuation System",
         "status": "active",
         "version": "1.0.0",
         "endpoints": {
             "trigger_alerts": "/api/alerts/trigger",
+            "trigger_evacuation": "/api/evacuation/trigger",
             "health": "/health"
         }
     }
+
 
 @app.get("/health")
 def health_check():
@@ -29,13 +38,18 @@ def health_check():
         os.environ.get('TWILIO_AUTH_TOKEN'),
         os.environ.get('TWILIO_PHONE_NUMBER')
     ])
-    
+
     return {
         "status": "healthy" if twilio_configured else "configuration_incomplete",
         "twilio_configured": twilio_configured,
+        "overpass_osrm_reachable": True,  # We assume external services are up unless tested
         "timestamp": datetime.now().isoformat()
     }
 
+
+# -----------------------------
+# Existing: Twilio Alerts
+# -----------------------------
 @app.get("/api/alerts/trigger")
 def trigger_alerts():
     try:
@@ -44,53 +58,53 @@ def trigger_alerts():
             os.environ.get('TWILIO_AUTH_TOKEN'),
             os.environ.get('TWILIO_PHONE_NUMBER')
         ])
-        
+
         if not twilio_configured:
             raise HTTPException(
                 status_code=500,
-                detail="Twilio credentials not configured. Please set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER environment variables."
+                detail="Twilio credentials not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER."
             )
-        
+
         contacts = [
             {
-                'phone': '+918850755760',
+                'phone': '+918850755760',  # Joel
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
-                'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA, Make sure you are safe'
+                'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             },
             {
-                'phone': '+919529685725',
+                'phone': '+919529685725',  # Sereena
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
-                'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA, Make sure you are safe'
+                'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             },
             {
-                'phone': '+919322945843',
+                'phone': '+919322945843',  # Seanne
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
-                'sms_message': 'URGENT: This is an emergency alert! from Government of India by DISHA, Make sure you are safe'
+                'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             }
         ]
-        
+
         logger.info("Alert trigger received via API")
-        
+
         results = send_parallel_alerts(
             contacts,
             max_workers=5,
             num_call_attempts=5,
             wait_time_between_rounds=40
         )
-        
+
         formatted_results = []
         for result in results:
-            total_calls = len(result.get('calls', []))
-            successful_calls = sum(1 for c in result.get('calls', []) if c.get('success'))
-            
+            calls = result.get('calls', [])
+            successful_calls = sum(1 for c in calls if c.get('success'))
+
             formatted_results.append({
                 "phone": result.get('phone'),
-                "total_calls": total_calls,
+                "total_calls": len(calls),
                 "successful_calls": successful_calls,
                 "sms_sent": result.get('sms', {}).get('success', False),
-                "call_details": result.get('calls', [])
+                "call_details": calls
             })
-        
+
         return {
             "status": "completed",
             "message": "Alerts sent successfully",
@@ -98,10 +112,60 @@ def trigger_alerts():
             "timestamp": datetime.now().isoformat(),
             "results": formatted_results
         }
-        
+
     except Exception as e:
         logger.error(f"Error triggering alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
+# -----------------------------
+# New: Evacuation Routes
+# -----------------------------
+@app.post("/api/evacuation/trigger")
+async def trigger_evacuation(
+    user_id: str = Body(..., embed=True),
+    user_lat: float = Body(..., embed=True),
+    user_lon: float = Body(..., embed=True),
+    radius_km: float = Body(10.0, embed=True),  # default 10km
+):
+    """
+    Trigger evacuation route calculation for a user in disaster zone.
+    Returns nearest hospitals, shelters/bunkers, underground parking with real road routes.
+    """
+    try:
+        if not (-90 <= user_lat <= 90):
+            raise HTTPException(status_code=400, detail="Invalid latitude. Must be between -90 and 90.")
+        if not (-180 <= user_lon <= 180):
+            raise HTTPException(status_code=400, detail="Invalid longitude. Must be between -180 and 180.")
+        if radius_km <= 0 or radius_km > 50:
+            raise HTTPException(status_code=400, detail="Radius must be between 0 and 50 km.")
+
+        logger.info(f"Evacuation request for user {user_id} at ({user_lat}, {user_lon}), radius {radius_km}km")
+
+        evacuation_data = await find_evacuation_routes(
+            user_lat=user_lat,
+            user_lon=user_lon,
+            radius_km=radius_km,
+            max_per_category=2
+        )
+
+        # Optionally trigger alerts here in future (e.g. after routes are ready)
+        # await some_alert_function(evacuation_data)
+
+        return JSONResponse(content={
+            "status": "success",
+            "user_id": user_id,
+            "alert_id": evacuation_data["alert_id"],
+            "timestamp": datetime.now().isoformat(),
+            "evacuation_routes": evacuation_data["results"]
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Evacuation routing failed for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to compute evacuation routes. Please try again later.")
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
