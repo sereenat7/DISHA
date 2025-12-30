@@ -11,11 +11,24 @@ from Asycn_Alerts.alerts import send_parallel_alerts, logger
 # Evacuation logic import
 from evacuation_system.main import find_evacuation_routes
 
+# Impact radius prediction import
+from impact_radius.predictor import ImpactRadiusPredictor
+from impact_radius.features import (
+    ImpactRadiusPredictionRequest,
+    ImpactRadiusPredictionResponse,
+    FeatureValidationError
+)
+
 app = FastAPI(
     title="DISHA - Disaster Intelligence Safety & Help Application",
     description="Emergency Alert + Dynamic Evacuation Routing System using OSM & OSRM",
     version="1.0.0"
 )
+
+# -----------------------------
+# Initialize Impact Radius Predictor
+# -----------------------------
+impact_predictor = ImpactRadiusPredictor()
 
 # -----------------------------
 # ✅ CORS POLICY (GITHUB FIX)
@@ -40,6 +53,7 @@ def read_root():
         "endpoints": {
             "trigger_alerts": "/api/alerts/trigger",
             "trigger_evacuation": "/api/evacuation/trigger",
+            "predict_impact_radius": "/api/predict-impact-radius",
             "health": "/health"
         }
     }
@@ -52,11 +66,15 @@ def health_check():
         os.environ.get('TWILIO_AUTH_TOKEN'),
         os.environ.get('TWILIO_PHONE_NUMBER')
     ])
+    
+    # Get impact radius system status
+    impact_status = impact_predictor.get_system_status()
 
     return {
         "status": "healthy" if twilio_configured else "configuration_incomplete",
         "twilio_configured": twilio_configured,
         "overpass_osrm_reachable": True,
+        "impact_radius_system": impact_status,
         "timestamp": datetime.now().isoformat()
     }
 
@@ -177,6 +195,63 @@ async def trigger_evacuation(
         raise HTTPException(
             status_code=500,
             detail="Failed to compute evacuation routes."
+        )
+
+
+# -----------------------------
+# Impact Radius Prediction
+# -----------------------------
+@app.post("/api/predict-impact-radius", response_model=ImpactRadiusPredictionResponse)
+async def predict_impact_radius(request: ImpactRadiusPredictionRequest):
+    """
+    Predict the impact radius for a disaster event.
+    
+    This endpoint uses a hybrid approach combining rule-based heuristics and 
+    machine learning models to predict the geographical impact zone of a disaster.
+    
+    Args:
+        request: Prediction request containing disaster type, location, and features
+        
+    Returns:
+        Prediction response with radius, confidence score, risk level, and GeoJSON
+        
+    Raises:
+        400: Invalid input (missing features, out-of-range values, unsupported disaster type)
+        500: Internal prediction error
+    """
+    try:
+        logger.info(
+            f"Impact radius prediction request: {request.disaster_type.value} "
+            f"at ({request.latitude}, {request.longitude})"
+        )
+        
+        # Perform prediction
+        response = impact_predictor.predict_from_request(request)
+        
+        logger.info(
+            f"Prediction successful: radius={response.radius_km:.2f}km, "
+            f"confidence={response.confidence_score:.2f}, risk={response.risk_level.value}"
+        )
+        
+        return response
+        
+    except FeatureValidationError as e:
+        logger.error(f"Feature validation failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Feature validation error: {str(e)}"
+        )
+    except ValueError as e:
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Validation error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Impact radius prediction failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: Failed to predict impact radius"
         )
 
 

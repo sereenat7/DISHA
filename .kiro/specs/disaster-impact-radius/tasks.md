@@ -157,13 +157,13 @@ This implementation plan breaks down the disaster impact radius prediction syste
   - Verify end-to-end prediction flow works
   - Ensure all tests pass, ask the user if questions arise
 
-- [ ] 9. Create Pydantic models for API
-  - [ ] 9.1 Define ImpactRadiusPredictionRequest model in `features.py`
+- [x] 9. Create Pydantic models for API
+  - [x] 9.1 Define ImpactRadiusPredictionRequest model in `features.py`
     - Add disaster_type, latitude, longitude, features fields
     - Add field validators and examples
     - _Requirements: 5.1, 5.2, 5.3_
 
-  - [ ] 9.2 Define ImpactRadiusPredictionResponse model in `features.py`
+  - [x] 9.2 Define ImpactRadiusPredictionResponse model in `features.py`
     - Add all output fields (radius, confidence, risk_level, etc.)
     - Add GeoJSON structure
     - Add response examples
@@ -174,8 +174,8 @@ This implementation plan breaks down the disaster impact radius prediction syste
   - **Validates: Requirements 6.4**
   - Test that geojson field contains valid GeoJSON Feature structure
 
-- [ ] 10. Integrate with FastAPI application
-  - [ ] 10.1 Add impact radius endpoint to `Backend/app.py`
+- [x] 10. Integrate with FastAPI application
+  - [x] 10.1 Add impact radius endpoint to `Backend/app.py`
     - Import predictor and models
     - Create POST endpoint at `/api/predict-impact-radius`
     - Implement request validation and error handling
@@ -183,7 +183,7 @@ This implementation plan breaks down the disaster impact radius prediction syste
     - Update root endpoint to include new endpoint in list
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 10.1, 10.2, 10.4_
 
-  - [ ] 10.2 Update `Backend/requirements.txt`
+  - [x] 10.2 Update `Backend/requirements.txt`
     - Add scikit-learn==1.3.2
     - Add joblib==1.3.2
     - Add numpy==1.24.3
@@ -198,13 +198,13 @@ This implementation plan breaks down the disaster impact radius prediction syste
   - Test response format matches schema
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-- [ ] 11. Generate training data and train models
-  - [ ] 11.1 Run synthetic data generation script
+- [x] 11. Generate training data and train models
+  - [x] 11.1 Run synthetic data generation script
     - Execute `python Backend/impact_radius/training/synthetic_data.py`
     - Verify CSV files created in `training/data/` directory
     - _Requirements: 2.2, 8.5_
 
-  - [ ] 11.2 Run model training script
+  - [x] 11.2 Run model training script
     - Execute `python Backend/impact_radius/training/train_models.py`
     - Verify model files created in `models/` directory
     - Review training metrics (RMSE, R²)

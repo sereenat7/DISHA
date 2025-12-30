@@ -22,3 +22,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# Status reports and temporary documentation
+ML_MODELS_STATUS_REPORT.md
