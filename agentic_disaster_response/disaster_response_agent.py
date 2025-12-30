@@ -4,7 +4,7 @@ Main Disaster Response Agent orchestrator for autonomous disaster response workf
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -17,6 +17,8 @@ from .models.alert_priority import AlertPriority
 from .models.context import StructuredContext
 from .models.mcp_tools import MCPToolRegistry
 from .core.error_handler import ErrorHandler
+from .core.workflow_logger import WorkflowLogger, WorkflowStep
+from .core.logging_config import get_logger
 from .core.exceptions import (
     DisasterResponseError, ContextBuildingError, PriorityAnalysisError,
     AlertDispatchError, FastAPIIntegrationError
@@ -99,7 +101,10 @@ class DisasterResponseAgent:
             config: Agent configuration (uses defaults if not provided)
         """
         self.config = config or AgentConfiguration()
-        self.logger = logging.getLogger(f"{__name__}.DisasterResponseAgent")
+        self.logger = get_logger(
+            f"{__name__}.DisasterResponseAgent",
+            component="DisasterResponseAgent"
+        )
 
         # Initialize core components
         self.context_builder = ContextBuilder(
@@ -123,6 +128,9 @@ class DisasterResponseAgent:
             "alert_prioritizer": False,
             "alert_dispatcher": False
         }
+
+        # Workflow loggers for active disasters
+        self.workflow_loggers: Dict[str, WorkflowLogger] = {}
 
         self.logger.info("DisasterResponseAgent initialized")
 
@@ -218,36 +226,93 @@ class DisasterResponseAgent:
 
     async def _process_disaster_internal(self, disaster_id: str) -> DisasterResponse:
         """Internal disaster processing with comprehensive error handling."""
-        # Initialize response tracking
+        # Initialize response tracking and workflow logger
         response = DisasterResponse(
             disaster_id=disaster_id,
             processing_status=ProcessingStatus.PENDING.value
         )
         self.active_disasters[disaster_id] = response
 
-        self.logger.info(f"Starting disaster processing for {disaster_id}")
+        # Create workflow logger for this disaster
+        workflow_logger = WorkflowLogger(disaster_id, "DisasterResponseAgent")
+        self.workflow_loggers[disaster_id] = workflow_logger
+
+        # Log workflow start with initial details
+        workflow_logger.log_workflow_start({
+            "agent_config": {
+                "max_concurrent_disasters": self.config.max_concurrent_disasters,
+                "enable_performance_monitoring": self.config.enable_performance_monitoring
+            },
+            "service_connections": self.service_connections.copy()
+        })
 
         try:
             # Step 1: Retrieve disaster data from FastAPI backend
-            response.processing_status = ProcessingStatus.CONTEXT_BUILDING.value
-            disaster_data = await self._retrieve_disaster_data(disaster_id)
+            with workflow_logger.create_step_logger(WorkflowStep.DATA_RETRIEVAL) as step_logger:
+                response.processing_status = ProcessingStatus.CONTEXT_BUILDING.value
+                step_logger.log_action("Connecting to FastAPI backend")
+                disaster_data = await self._retrieve_disaster_data(disaster_id, workflow_logger)
+                step_logger.log_action("Disaster data retrieved successfully", {
+                    "disaster_type": disaster_data.disaster_type.value,
+                    "severity": disaster_data.severity.value,
+                    "affected_population": disaster_data.estimated_impact.estimated_affected_population
+                })
 
             # Step 2: Build comprehensive context
-            context = await self._build_disaster_context(disaster_data, response)
-            response.context = context
+            with workflow_logger.create_step_logger(WorkflowStep.CONTEXT_BUILDING) as step_logger:
+                step_logger.log_action("Starting context enrichment")
+                context = await self._build_disaster_context(disaster_data, response, workflow_logger)
+                response.context = context
+                step_logger.log_action("Context building completed", {
+                    "context_completeness": context.context_completeness,
+                    "evacuation_routes_count": len(context.evacuation_routes),
+                    "missing_data_indicators": context.missing_data_indicators
+                })
 
             # Step 3: Analyze priority
-            response.processing_status = ProcessingStatus.PRIORITY_ANALYSIS.value
-            priority = await self._analyze_disaster_priority(context, response)
-            response.priority = priority
+            with workflow_logger.create_step_logger(WorkflowStep.PRIORITY_ANALYSIS) as step_logger:
+                response.processing_status = ProcessingStatus.PRIORITY_ANALYSIS.value
+                step_logger.log_action("Analyzing disaster priority")
+                priority = await self._analyze_disaster_priority(context, response, workflow_logger)
+                response.priority = priority
+                step_logger.log_action("Priority analysis completed", {
+                    "priority_level": priority.level.value,
+                    "priority_score": priority.score,
+                    "confidence": priority.confidence
+                })
 
             # Step 4: Dispatch alerts
-            response.processing_status = ProcessingStatus.ALERT_DISPATCH.value
-            await self._dispatch_disaster_alerts(priority, context, response)
+            with workflow_logger.create_step_logger(WorkflowStep.ALERT_DISPATCH) as step_logger:
+                response.processing_status = ProcessingStatus.ALERT_DISPATCH.value
+                step_logger.log_action("Starting alert dispatch")
+                await self._dispatch_disaster_alerts(priority, context, response, workflow_logger)
+                step_logger.log_action("Alert dispatch completed", {
+                    "dispatch_results_count": len(response.dispatch_results),
+                    "success_rate": response.success_rate
+                })
 
             # Mark as completed
             response.processing_status = ProcessingStatus.COMPLETED.value
             response.mark_completed()
+
+            # Log workflow completion with summary
+            workflow_summary = {
+                "total_processing_time_seconds": response.total_processing_time_seconds,
+                "context_completeness": context.context_completeness,
+                "priority_level": priority.level.value,
+                "dispatch_success_rate": response.success_rate,
+                "error_count": len(response.errors)
+            }
+            workflow_logger.log_workflow_completion(True, workflow_summary)
+
+            # Log performance metrics
+            workflow_logger.log_performance_metrics({
+                "processing_time_ms": response.total_processing_time_seconds * 1000,
+                "context_building_success": True,
+                "priority_analysis_success": True,
+                "alert_dispatch_success": response.success_rate > 0.5,
+                "overall_success": True
+            })
 
             self.logger.info(
                 f"Disaster processing completed for {disaster_id} in "
@@ -257,7 +322,7 @@ class DisasterResponseAgent:
             return response
 
         except Exception as e:
-            # Handle processing failure
+            # Handle processing failure with comprehensive error logging
             response.processing_status = ProcessingStatus.FAILED.value
             error_record = response.add_error(
                 component="DisasterResponseAgent",
@@ -267,8 +332,13 @@ class DisasterResponseAgent:
                 context={"disaster_id": disaster_id}
             )
 
-            self.logger.error(
-                f"Disaster processing failed for {disaster_id}: {e}")
+            # Log error with recovery context
+            error_context = {
+                "disaster_id": disaster_id,
+                "processing_status": response.processing_status,
+                "service_connections": self.service_connections.copy(),
+                "error_type": type(e).__name__
+            }
 
             # Attempt error recovery
             recovery_result = await self.error_handler.handle_error(
@@ -276,26 +346,52 @@ class DisasterResponseAgent:
                     "component": "DisasterResponseAgent"}
             )
 
+            recovery_action = None
+            recovery_success = False
             if recovery_result.get("status") == "recovered":
                 self.logger.info(
                     f"Recovery successful for disaster {disaster_id}")
-                error_record.recovery_action_taken = "Automatic recovery successful"
+                recovery_action = "Automatic recovery successful"
+                recovery_success = True
+                error_record.recovery_action_taken = recovery_action
                 error_record.resolved = True
             else:
-                error_record.recovery_action_taken = f"Recovery failed: {recovery_result.get('reason', 'Unknown')}"
+                recovery_action = f"Recovery failed: {recovery_result.get('reason', 'Unknown')}"
+                error_record.recovery_action_taken = recovery_action
+
+            # Log error with recovery information
+            workflow_logger.log_error_with_recovery(
+                e, error_context, recovery_action, recovery_success
+            )
+
+            # Log workflow completion as failure
+            failure_summary = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "recovery_attempted": True,
+                "recovery_successful": recovery_success,
+                "processing_time_seconds": response.total_processing_time_seconds
+            }
+            workflow_logger.log_workflow_completion(False, failure_summary)
 
             response.mark_completed()
             return response
 
         finally:
-            # Clean up active disaster tracking
+            # Clean up active disaster tracking and workflow logger
             if disaster_id in self.active_disasters:
                 del self.active_disasters[disaster_id]
+            if disaster_id in self.workflow_loggers:
+                del self.workflow_loggers[disaster_id]
 
-    async def _retrieve_disaster_data(self, disaster_id: str) -> DisasterData:
+    async def _retrieve_disaster_data(self, disaster_id: str, workflow_logger: WorkflowLogger) -> DisasterData:
         """Retrieve disaster data from FastAPI backend with error handling."""
         try:
-            self.logger.info(f"Retrieving disaster data for {disaster_id}")
+            workflow_logger.log_step_progress(
+                WorkflowStep.DATA_RETRIEVAL,
+                f"Retrieving disaster data for {disaster_id}",
+                {"data_source": "FastAPI_Backend"}
+            )
 
             # Use existing FastAPI backend function
             disaster_data = await get_disaster_data(disaster_id)
@@ -308,15 +404,34 @@ class DisasterResponseAgent:
                 )
 
             # Validate disaster data completeness
-            self._validate_disaster_data(disaster_data)
+            with workflow_logger.create_step_logger(WorkflowStep.DATA_VALIDATION) as step_logger:
+                step_logger.log_action("Validating disaster data completeness")
+                self._validate_disaster_data(disaster_data)
+                step_logger.log_action(
+                    "Data validation completed successfully")
 
-            self.logger.info(
-                f"Successfully retrieved disaster data for {disaster_id}")
+            workflow_logger.log_step_progress(
+                WorkflowStep.DATA_RETRIEVAL,
+                f"Successfully retrieved and validated disaster data for {disaster_id}",
+                {
+                    "disaster_type": disaster_data.disaster_type.value,
+                    "severity": disaster_data.severity.value,
+                    "affected_areas_count": len(disaster_data.affected_areas),
+                    "estimated_affected_population": disaster_data.estimated_impact.estimated_affected_population
+                }
+            )
             return disaster_data
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to retrieve disaster data for {disaster_id}: {e}")
+            workflow_logger.log_error_with_recovery(
+                e,
+                {
+                    "disaster_id": disaster_id,
+                    "component": "FastAPIBackend",
+                    "operation": "data_retrieval"
+                },
+                "Attempting fallback data sources"
+            )
             raise FastAPIIntegrationError(
                 f"Failed to retrieve disaster data: {e}",
                 disaster_id=disaster_id,
@@ -324,25 +439,42 @@ class DisasterResponseAgent:
             ) from e
 
     async def _build_disaster_context(
-        self, disaster_data: DisasterData, response: DisasterResponse
+        self, disaster_data: DisasterData, response: DisasterResponse, workflow_logger: WorkflowLogger
     ) -> StructuredContext:
         """Build disaster context with error handling and fallback."""
         try:
-            self.logger.info(
-                f"Building context for disaster {disaster_data.disaster_id}")
+            workflow_logger.log_step_progress(
+                WorkflowStep.CONTEXT_BUILDING,
+                f"Building context for disaster {disaster_data.disaster_id}",
+                {"context_builder_config": {
+                    "search_radius_km": self.config.context_search_radius_km,
+                    "max_routes_per_category": self.config.max_routes_per_category
+                }}
+            )
 
             context = await self.context_builder.build_context(disaster_data)
 
-            self.logger.info(
-                f"Context built successfully for {disaster_data.disaster_id} "
-                f"with {context.context_completeness:.2f} completeness"
+            workflow_logger.log_step_progress(
+                WorkflowStep.CONTEXT_BUILDING,
+                f"Context built successfully for {disaster_data.disaster_id}",
+                {
+                    "context_completeness": context.context_completeness,
+                    "evacuation_routes_count": len(context.evacuation_routes),
+                    "affected_population": context.affected_population.total_population,
+                    "missing_data_indicators": context.missing_data_indicators
+                }
             )
 
             return context
 
         except Exception as e:
-            self.logger.error(
-                f"Context building failed for {disaster_data.disaster_id}: {e}")
+            # Log error with recovery context
+            error_context = {
+                "disaster_id": disaster_data.disaster_id,
+                "component": "ContextBuilder",
+                "operation": "context_building",
+                "disaster_type": disaster_data.disaster_type.value
+            }
 
             # Add error record
             response.add_error(
@@ -355,12 +487,31 @@ class DisasterResponseAgent:
 
             # Attempt to create minimal fallback context
             try:
+                workflow_logger.log_step_progress(
+                    WorkflowStep.CONTEXT_BUILDING,
+                    "Context building failed, creating fallback context",
+                    {"fallback_reason": str(e)}
+                )
+
                 fallback_context = await self._create_fallback_context(disaster_data)
-                self.logger.warning(
-                    f"Using fallback context for disaster {disaster_data.disaster_id}"
+
+                workflow_logger.log_error_with_recovery(
+                    e, error_context, "Fallback context created successfully", True
+                )
+
+                workflow_logger.log_step_progress(
+                    WorkflowStep.CONTEXT_BUILDING,
+                    f"Using fallback context for disaster {disaster_data.disaster_id}",
+                    {
+                        "context_completeness": fallback_context.context_completeness,
+                        "fallback_indicators": fallback_context.missing_data_indicators
+                    }
                 )
                 return fallback_context
             except Exception as fallback_error:
+                workflow_logger.log_error_with_recovery(
+                    fallback_error, error_context, "Fallback context creation failed", False
+                )
                 raise ContextBuildingError(
                     f"Context building and fallback both failed: {e}",
                     disaster_id=disaster_data.disaster_id,
@@ -368,26 +519,44 @@ class DisasterResponseAgent:
                 ) from fallback_error
 
     async def _analyze_disaster_priority(
-        self, context: StructuredContext, response: DisasterResponse
+        self, context: StructuredContext, response: DisasterResponse, workflow_logger: WorkflowLogger
     ) -> AlertPriority:
         """Analyze disaster priority with fallback handling."""
         try:
-            self.logger.info(
-                f"Analyzing priority for disaster {context.disaster_info.disaster_id}")
+            workflow_logger.log_step_progress(
+                WorkflowStep.PRIORITY_ANALYSIS,
+                f"Analyzing priority for disaster {context.disaster_info.disaster_id}",
+                {
+                    "affected_population": context.affected_population.total_population,
+                    "context_completeness": context.context_completeness,
+                    "evacuation_routes_available": len(context.evacuation_routes)
+                }
+            )
 
             priority = self.alert_prioritizer.analyze_priority_with_fallback(
                 context)
 
-            self.logger.info(
-                f"Priority analysis completed for {context.disaster_info.disaster_id}: "
-                f"{priority.level.value} (score: {priority.score:.3f})"
+            workflow_logger.log_step_progress(
+                WorkflowStep.PRIORITY_ANALYSIS,
+                f"Priority analysis completed for {context.disaster_info.disaster_id}",
+                {
+                    "priority_level": priority.level.value,
+                    "priority_score": priority.score,
+                    "confidence": priority.confidence,
+                    "reasoning": priority.reasoning
+                }
             )
 
             return priority
 
         except Exception as e:
-            self.logger.error(
-                f"Priority analysis failed for {context.disaster_info.disaster_id}: {e}")
+            # Log error with recovery context
+            error_context = {
+                "disaster_id": context.disaster_info.disaster_id,
+                "component": "AlertPrioritizer",
+                "operation": "priority_analysis",
+                "context_completeness": context.context_completeness
+            }
 
             # Add error record
             response.add_error(
@@ -403,18 +572,50 @@ class DisasterResponseAgent:
                 f"Priority analysis failed: {e}"
             )
 
+            workflow_logger.log_error_with_recovery(
+                e, error_context, "Fallback HIGH priority assigned", True
+            )
+
+            workflow_logger.log_step_progress(
+                WorkflowStep.PRIORITY_ANALYSIS,
+                f"Using fallback priority for disaster {context.disaster_info.disaster_id}",
+                {
+                    "fallback_priority": fallback_priority.level.value,
+                    "fallback_reason": str(e)
+                }
+            )
+
             return fallback_priority
 
     async def _dispatch_disaster_alerts(
-        self, priority: AlertPriority, context: StructuredContext, response: DisasterResponse
+        self, priority: AlertPriority, context: StructuredContext, response: DisasterResponse, workflow_logger: WorkflowLogger
     ) -> None:
         """Dispatch disaster alerts with comprehensive error handling."""
         try:
             disaster_id = context.disaster_info.disaster_id
-            self.logger.info(f"Dispatching alerts for disaster {disaster_id}")
+
+            workflow_logger.log_step_progress(
+                WorkflowStep.ALERT_DISPATCH,
+                f"Dispatching alerts for disaster {disaster_id}",
+                {
+                    "priority_level": priority.level.value,
+                    "affected_population": context.affected_population.total_population,
+                    "available_mcp_tools": len(self.alert_dispatcher.registry.get_enabled_tools())
+                }
+            )
 
             # Generate alert message
             alert_message = self._generate_alert_message(context, priority)
+
+            # Log dispatch attempt
+            dispatch_id = f"{disaster_id}_{int(datetime.now().timestamp())}"
+            estimated_recipients = context.affected_population.total_population
+            delivery_channels = ["emergency_broadcast",
+                                 "mobile_alert", "web_notification"]
+
+            workflow_logger.log_dispatch_attempt(
+                dispatch_id, "MCP_AlertDispatcher", estimated_recipients, delivery_channels
+            )
 
             # Dispatch alerts through MCP tools
             dispatch_result = await self.alert_dispatcher.dispatch_alerts(
@@ -423,19 +624,26 @@ class DisasterResponseAgent:
                 message=alert_message
             )
 
-            # Convert dispatch result to response format
+            # Convert dispatch result to response format and log detailed results
             from .models.response import DispatchResult as ResponseDispatchResult, DispatchStatus
+
+            successful_dispatches = 0
+            failed_dispatches = 0
 
             for execution_result in dispatch_result.execution_results:
                 status = DispatchStatus.SUCCESS if execution_result.status.value == "success" else DispatchStatus.FAILED
+
+                if status == DispatchStatus.SUCCESS:
+                    successful_dispatches += 1
+                else:
+                    failed_dispatches += 1
 
                 response_dispatch = ResponseDispatchResult(
                     dispatch_id=f"{disaster_id}_{execution_result.tool_name}_{int(datetime.now().timestamp())}",
                     mcp_tool_name=execution_result.tool_name,
                     status=status,
                     timestamp=datetime.now(),
-                    recipients_count=len(context.affected_population.total_population if hasattr(
-                        context.affected_population, 'total_population') else []),
+                    recipients_count=estimated_recipients,
                     successful_deliveries=1 if status == DispatchStatus.SUCCESS else 0,
                     failed_deliveries=1 if status == DispatchStatus.FAILED else 0,
                     error_message=execution_result.error_message,
@@ -445,15 +653,47 @@ class DisasterResponseAgent:
                 )
                 response.dispatch_results.append(response_dispatch)
 
+                # Log individual dispatch result
+                workflow_logger.log_dispatch_result(
+                    response_dispatch.dispatch_id,
+                    execution_result.tool_name,
+                    estimated_recipients,
+                    1 if status == DispatchStatus.SUCCESS else 0,
+                    1 if status == DispatchStatus.FAILED else 0,
+                    delivery_channels,
+                    execution_result.execution_time_ms,
+                    execution_result.error_message,
+                    getattr(execution_result, 'retry_count', 0)
+                )
+
+            # Log overall dispatch completion
             if dispatch_result.success:
-                self.logger.info(
-                    f"Alert dispatch completed successfully for {disaster_id}: "
-                    f"{dispatch_result.successful_dispatches}/{dispatch_result.total_tools_attempted} tools succeeded"
+                workflow_logger.log_step_progress(
+                    WorkflowStep.ALERT_DISPATCH,
+                    f"Alert dispatch completed successfully for {disaster_id}",
+                    {
+                        "successful_tools": dispatch_result.successful_dispatches,
+                        "total_tools_attempted": dispatch_result.total_tools_attempted,
+                        "success_rate": dispatch_result.successful_dispatches / max(dispatch_result.total_tools_attempted, 1),
+                        "alert_message": alert_message[:100] + "..." if len(alert_message) > 100 else alert_message
+                    }
                 )
             else:
-                self.logger.error(
-                    f"Alert dispatch failed for {disaster_id}: {dispatch_result.error_summary}"
+                error_context = {
+                    "disaster_id": disaster_id,
+                    "component": "AlertDispatcher",
+                    "operation": "alert_dispatch",
+                    "successful_dispatches": dispatch_result.successful_dispatches,
+                    "total_tools_attempted": dispatch_result.total_tools_attempted
+                }
+
+                workflow_logger.log_error_with_recovery(
+                    Exception(
+                        dispatch_result.error_summary or "Alert dispatch failed"),
+                    error_context,
+                    "Partial dispatch completed with some failures"
                 )
+
                 response.add_error(
                     component="AlertDispatcher",
                     severity=ErrorSeverity.HIGH,
@@ -464,8 +704,16 @@ class DisasterResponseAgent:
                 )
 
         except Exception as e:
-            self.logger.error(
-                f"Alert dispatch failed for {context.disaster_info.disaster_id}: {e}")
+            error_context = {
+                "disaster_id": context.disaster_info.disaster_id,
+                "component": "AlertDispatcher",
+                "operation": "alert_dispatch",
+                "priority_level": priority.level.value
+            }
+
+            workflow_logger.log_error_with_recovery(
+                e, error_context, "Alert dispatch failed completely"
+            )
 
             response.add_error(
                 component="AlertDispatcher",
