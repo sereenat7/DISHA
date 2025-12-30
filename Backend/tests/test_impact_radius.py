@@ -886,3 +886,560 @@ def test_property_3_ml_fallback_to_rule_engine(disaster_type, features):
     # Verify that the model is reported as unavailable
     assert not predictor.is_model_available(disaster_type), \
         f"Model for {disaster_type} should be reported as unavailable"
+
+
+# ============================================================================
+# Property Tests for Ensemble Combination
+# ============================================================================
+
+# Property 15: Ensemble Weight Consistency
+# Validates: Requirements 2.5
+@settings(max_examples=100)
+@given(
+    disaster_type=disaster_types,
+    features=st.data(),
+    ml_available=st.booleans(),
+    feature_completeness=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
+)
+def test_property_15_ensemble_weights_sum_to_one(disaster_type, features, ml_available, feature_completeness):
+    """
+    Feature: disaster-impact-radius, Property 15: Ensemble Weight Consistency
+    
+    For any disaster type and prediction scenario, the rule_weight and ml_weight
+    should always sum to exactly 1.0.
+    
+    Validates: Requirements 2.5
+    """
+    from impact_radius.ensemble import EnsembleCombiner
+    from impact_radius.rule_engine import RuleEngine
+    
+    combiner = EnsembleCombiner()
+    engine = RuleEngine()
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Get rule prediction
+    rule_prediction = engine.predict(disaster_type, valid_feature_dict)
+    
+    # Generate a mock ML prediction (similar to rule prediction with some variation)
+    ml_prediction = rule_prediction * features.draw(
+        st.floats(min_value=0.8, max_value=1.2, allow_nan=False, allow_infinity=False)
+    )
+    
+    # Combine predictions
+    final_radius, rule_weight, ml_weight, method_used = combiner.combine_predictions(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction,
+        ml_available=ml_available,
+        features=valid_feature_dict,
+        feature_completeness=feature_completeness
+    )
+    
+    # Verify weights sum to 1.0 (with small tolerance for floating point arithmetic)
+    weight_sum = rule_weight + ml_weight
+    assert abs(weight_sum - 1.0) < 1e-10, \
+        f"Weights should sum to 1.0, got {weight_sum} (rule={rule_weight}, ml={ml_weight})"
+
+
+# Property 7: Confidence Score Bounds
+# Validates: Requirements 4.2, 9.5
+@settings(max_examples=100)
+@given(
+    disaster_type=disaster_types,
+    features=st.data(),
+    ml_available=st.booleans(),
+    feature_completeness=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
+)
+def test_property_7_confidence_score_bounds(disaster_type, features, ml_available, feature_completeness):
+    """
+    Feature: disaster-impact-radius, Property 7: Confidence Score Bounds
+    
+    For any disaster type and prediction scenario, the confidence score
+    should always be between 0.0 and 1.0 (inclusive).
+    
+    Validates: Requirements 4.2, 9.5
+    """
+    from impact_radius.ensemble import EnsembleCombiner
+    from impact_radius.rule_engine import RuleEngine
+    
+    combiner = EnsembleCombiner()
+    engine = RuleEngine()
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Get rule prediction
+    rule_prediction = engine.predict(disaster_type, valid_feature_dict)
+    
+    # Generate a mock ML prediction
+    ml_prediction = rule_prediction * features.draw(
+        st.floats(min_value=0.5, max_value=1.5, allow_nan=False, allow_infinity=False)
+    )
+    
+    # Combine predictions to get weights
+    final_radius, rule_weight, ml_weight, method_used = combiner.combine_predictions(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction,
+        ml_available=ml_available,
+        features=valid_feature_dict,
+        feature_completeness=feature_completeness
+    )
+    
+    # Calculate confidence
+    confidence = combiner.calculate_confidence(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction,
+        ml_available=ml_available,
+        feature_completeness=feature_completeness,
+        rule_weight=rule_weight,
+        ml_weight=ml_weight
+    )
+    
+    # Verify confidence is in valid range [0.0, 1.0]
+    assert 0.0 <= confidence <= 1.0, \
+        f"Confidence score {confidence} is outside valid range [0.0, 1.0]"
+
+
+# Property 11: Confidence Decreases with Divergence
+# Validates: Requirements 9.4
+@settings(max_examples=100)
+@given(
+    disaster_type=disaster_types,
+    features=st.data(),
+    feature_completeness=st.floats(min_value=0.8, max_value=1.0, allow_nan=False, allow_infinity=False)
+)
+def test_property_11_confidence_decreases_with_divergence(disaster_type, features, feature_completeness):
+    """
+    Feature: disaster-impact-radius, Property 11: Confidence Decreases with Divergence
+    
+    For any disaster type, when rule and ML predictions diverge significantly,
+    the confidence score should be lower than when they agree closely.
+    
+    Validates: Requirements 9.4
+    """
+    from impact_radius.ensemble import EnsembleCombiner
+    from impact_radius.rule_engine import RuleEngine
+    
+    combiner = EnsembleCombiner()
+    engine = RuleEngine()
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Get rule prediction
+    rule_prediction = engine.predict(disaster_type, valid_feature_dict)
+    
+    # Scenario 1: Predictions agree closely (within 10%)
+    ml_prediction_close = rule_prediction * features.draw(
+        st.floats(min_value=0.95, max_value=1.05, allow_nan=False, allow_infinity=False)
+    )
+    
+    _, rule_weight_close, ml_weight_close, _ = combiner.combine_predictions(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction_close,
+        ml_available=True,
+        features=valid_feature_dict,
+        feature_completeness=feature_completeness
+    )
+    
+    confidence_close = combiner.calculate_confidence(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction_close,
+        ml_available=True,
+        feature_completeness=feature_completeness,
+        rule_weight=rule_weight_close,
+        ml_weight=ml_weight_close
+    )
+    
+    # Scenario 2: Predictions diverge significantly (50%+ difference)
+    ml_prediction_divergent = rule_prediction * features.draw(
+        st.floats(min_value=1.6, max_value=2.0, allow_nan=False, allow_infinity=False)
+    )
+    
+    _, rule_weight_div, ml_weight_div, _ = combiner.combine_predictions(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction_divergent,
+        ml_available=True,
+        features=valid_feature_dict,
+        feature_completeness=feature_completeness
+    )
+    
+    confidence_divergent = combiner.calculate_confidence(
+        disaster_type=disaster_type,
+        rule_prediction=rule_prediction,
+        ml_prediction=ml_prediction_divergent,
+        ml_available=True,
+        feature_completeness=feature_completeness,
+        rule_weight=rule_weight_div,
+        ml_weight=ml_weight_div
+    )
+    
+    # Verify that divergent predictions result in lower confidence
+    assert confidence_divergent < confidence_close, \
+        f"Divergent predictions should have lower confidence. " \
+        f"Close: {confidence_close:.3f}, Divergent: {confidence_divergent:.3f}"
+
+
+# Property 8: Risk Level Classification
+# Validates: Requirements 4.3, 4.4, 4.5, 4.6, 4.7
+@settings(max_examples=100)
+@given(
+    disaster_type=disaster_types,
+    features=st.data()
+)
+def test_property_8_risk_level_classification(disaster_type, features):
+    """
+    Feature: disaster-impact-radius, Property 8: Risk Level Classification
+    
+    For any disaster type and valid features, the risk level classification
+    should always be one of: low, moderate, high, critical.
+    
+    Validates: Requirements 4.3, 4.4, 4.5, 4.6, 4.7
+    """
+    from impact_radius.ensemble import EnsembleCombiner
+    from impact_radius.rule_engine import RuleEngine
+    from impact_radius.features import RiskLevel
+    
+    combiner = EnsembleCombiner()
+    engine = RuleEngine()
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Get prediction radius
+    radius = engine.predict(disaster_type, valid_feature_dict)
+    
+    # Classify risk level
+    risk_level = combiner.classify_risk_level(
+        disaster_type=disaster_type,
+        radius_km=radius,
+        features=valid_feature_dict
+    )
+    
+    # Verify risk level is one of the valid values
+    valid_risk_levels = {RiskLevel.LOW, RiskLevel.MODERATE, RiskLevel.HIGH, RiskLevel.CRITICAL}
+    assert risk_level in valid_risk_levels, \
+        f"Risk level {risk_level} is not one of the valid values: {valid_risk_levels}"
+
+
+# ============================================================================
+# Unit Tests for Ensemble Combination
+# ============================================================================
+
+class TestEnsembleCombiner:
+    """Unit tests for ensemble combination logic."""
+    
+    def setup_method(self):
+        """Set up test fixtures."""
+        from impact_radius.ensemble import EnsembleCombiner
+        self.combiner = EnsembleCombiner()
+    
+    # Risk level threshold tests
+    def test_earthquake_magnitude_7_is_critical(self):
+        """Test that earthquake magnitude >= 7.0 is classified as critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "magnitude": 7.5,
+            "depth": 10.0,
+            "soil_type": 3.0
+        }
+        
+        # Even with moderate radius, high magnitude should be critical
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.EARTHQUAKE,
+            radius_km=20.0,
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Earthquake magnitude 7.5 should be critical, got {risk_level}"
+    
+    def test_earthquake_magnitude_6_high_becomes_critical(self):
+        """Test that earthquake magnitude >= 6.0 with high base level becomes critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "magnitude": 6.5,
+            "depth": 5.0,
+            "soil_type": 4.0
+        }
+        
+        # Large radius with magnitude 6.5 should be critical
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.EARTHQUAKE,
+            radius_km=350.0,  # Large radius
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Earthquake magnitude 6.5 with large radius should be critical, got {risk_level}"
+    
+    def test_cyclone_category_5_is_critical(self):
+        """Test that Category 5 cyclone (wind >= 252 km/h) is critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "wind_speed": 280.0,  # Category 5
+            "atmospheric_pressure": 900.0,
+            "movement_speed": 20.0,
+            "coastal_proximity": 10.0
+        }
+        
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.CYCLONE,
+            radius_km=100.0,
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Category 5 cyclone should be critical, got {risk_level}"
+    
+    def test_cyclone_category_4_high_becomes_critical(self):
+        """Test that Category 4 cyclone with high base level becomes critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "wind_speed": 220.0,  # Category 4
+            "atmospheric_pressure": 920.0,
+            "movement_speed": 15.0,
+            "coastal_proximity": 5.0
+        }
+        
+        # Large radius with Category 4 should be critical
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.CYCLONE,
+            radius_km=400.0,  # Large radius
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Category 4 cyclone with large radius should be critical, got {risk_level}"
+    
+    def test_fire_extreme_conditions_is_critical(self):
+        """Test that extreme fire conditions are classified as critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "fire_intensity": 85.0,  # Very high
+            "wind_speed": 70.0,  # High wind
+            "wind_direction": 180.0,
+            "humidity": 15.0,  # Very low
+            "temperature": 40.0  # Very hot
+        }
+        
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.FIRE,
+            radius_km=20.0,
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Extreme fire conditions should be critical, got {risk_level}"
+    
+    def test_flood_extreme_rainfall_is_critical(self):
+        """Test that extreme rainfall is classified as critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "rainfall_intensity": 150.0,  # Very high
+            "duration": 20.0,  # Long duration
+            "elevation": 50.0,
+            "river_proximity": 2.0
+        }
+        
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.FLOOD,
+            radius_km=30.0,
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Extreme rainfall should be critical, got {risk_level}"
+    
+    def test_gas_leak_severity_9_is_critical(self):
+        """Test that gas leak severity >= 9.0 is critical."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "wind_speed": 30.0,
+            "atmospheric_stability": 2.0,
+            "leak_severity": 9.5
+        }
+        
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.GAS_LEAK,
+            radius_km=5.0,
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.CRITICAL, \
+            f"Gas leak severity 9.5 should be critical, got {risk_level}"
+    
+    def test_small_radius_is_low_risk(self):
+        """Test that small radius results in low risk level."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "magnitude": 4.0,
+            "depth": 50.0,
+            "soil_type": 1.0
+        }
+        
+        # Small radius should be low risk
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.EARTHQUAKE,
+            radius_km=2.0,  # Near minimum
+            features=features
+        )
+        
+        assert risk_level == RiskLevel.LOW, \
+            f"Small radius should be low risk, got {risk_level}"
+    
+    def test_medium_radius_is_moderate_or_high(self):
+        """Test that medium radius results in moderate or high risk level."""
+        from impact_radius.features import RiskLevel
+        
+        features = {
+            "rainfall_intensity": 50.0,
+            "duration": 10.0,
+            "elevation": 100.0,
+            "river_proximity": 20.0
+        }
+        
+        # Medium radius should be moderate or high (flood range is 0.5-100, so 50 is mid-range)
+        risk_level = self.combiner.classify_risk_level(
+            disaster_type=DisasterType.FLOOD,
+            radius_km=50.0,  # Mid-range for flood
+            features=features
+        )
+        
+        assert risk_level in [RiskLevel.MODERATE, RiskLevel.HIGH], \
+            f"Medium radius should be moderate or high, got {risk_level}"
+    
+    # Explanation generation tests
+    def test_explanation_is_non_empty(self):
+        """Test that explanation generation produces non-empty text."""
+        from impact_radius.features import RiskLevel, MethodUsed
+        
+        features = {
+            "magnitude": 6.0,
+            "depth": 10.0,
+            "soil_type": 3.0
+        }
+        
+        explanation = self.combiner.generate_explanation(
+            disaster_type=DisasterType.EARTHQUAKE,
+            radius_km=25.0,
+            confidence_score=0.75,
+            risk_level=RiskLevel.HIGH,
+            method_used=MethodUsed.HYBRID,
+            rule_weight=0.6,
+            ml_weight=0.4,
+            features=features
+        )
+        
+        assert len(explanation) > 0, "Explanation should not be empty"
+        assert "magnitude" in explanation.lower(), "Explanation should mention magnitude"
+    
+    def test_explanation_includes_method_used(self):
+        """Test that explanation includes information about prediction method."""
+        from impact_radius.features import RiskLevel, MethodUsed
+        
+        features = {
+            "fire_intensity": 60.0,
+            "wind_speed": 40.0,
+            "wind_direction": 180.0,
+            "humidity": 30.0,
+            "temperature": 35.0
+        }
+        
+        # Test rule-based explanation
+        explanation_rule = self.combiner.generate_explanation(
+            disaster_type=DisasterType.FIRE,
+            radius_km=15.0,
+            confidence_score=0.65,
+            risk_level=RiskLevel.HIGH,
+            method_used=MethodUsed.RULE_BASED,
+            rule_weight=1.0,
+            ml_weight=0.0,
+            features=features
+        )
+        
+        assert "rule" in explanation_rule.lower() or "heuristic" in explanation_rule.lower(), \
+            "Rule-based explanation should mention rule engine"
+        
+        # Test hybrid explanation
+        explanation_hybrid = self.combiner.generate_explanation(
+            disaster_type=DisasterType.FIRE,
+            radius_km=15.0,
+            confidence_score=0.75,
+            risk_level=RiskLevel.HIGH,
+            method_used=MethodUsed.HYBRID,
+            rule_weight=0.6,
+            ml_weight=0.4,
+            features=features
+        )
+        
+        assert "hybrid" in explanation_hybrid.lower(), \
+            "Hybrid explanation should mention hybrid method"
+        assert "60%" in explanation_hybrid or "40%" in explanation_hybrid, \
+            "Hybrid explanation should include weight percentages"
+    
+    def test_explanation_includes_confidence(self):
+        """Test that explanation includes confidence information."""
+        from impact_radius.features import RiskLevel, MethodUsed
+        
+        features = {
+            "wind_speed": 150.0,
+            "atmospheric_pressure": 950.0,
+            "movement_speed": 20.0,
+            "coastal_proximity": 50.0
+        }
+        
+        explanation = self.combiner.generate_explanation(
+            disaster_type=DisasterType.CYCLONE,
+            radius_km=120.0,
+            confidence_score=0.85,
+            risk_level=RiskLevel.HIGH,
+            method_used=MethodUsed.HYBRID,
+            rule_weight=0.5,
+            ml_weight=0.5,
+            features=features
+        )
+        
+        assert "confidence" in explanation.lower(), \
+            "Explanation should mention confidence"
+    
+    def test_explanation_includes_risk_level(self):
+        """Test that explanation includes risk level information."""
+        from impact_radius.features import RiskLevel, MethodUsed
+        
+        features = {
+            "wind_speed": 25.0,
+            "atmospheric_stability": 3.0,
+            "leak_severity": 6.0
+        }
+        
+        explanation = self.combiner.generate_explanation(
+            disaster_type=DisasterType.GAS_LEAK,
+            radius_km=3.5,
+            confidence_score=0.70,
+            risk_level=RiskLevel.MODERATE,
+            method_used=MethodUsed.RULE_BASED,
+            rule_weight=1.0,
+            ml_weight=0.0,
+            features=features
+        )
+        
+        assert "moderate" in explanation.lower(), \
+            "Explanation should mention risk level"
+        assert "3.5" in explanation or "3.5km" in explanation.lower(), \
+            "Explanation should include predicted radius"

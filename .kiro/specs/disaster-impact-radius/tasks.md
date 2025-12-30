@@ -81,46 +81,46 @@ This implementation plan breaks down the disaster impact radius prediction syste
   - **Validates: Requirements 2.3, 10.3**
   - Test that predictions succeed even when ML models fail to load
 
-- [ ] 5. Checkpoint - Ensure all tests pass
+- [x] 5. Checkpoint - Ensure all tests pass
   - Run all unit tests and property tests
   - Verify rule engine and ML models work independently
   - Ensure all tests pass, ask the user if questions arise
 
-- [ ] 6. Implement ensemble combination logic
-  - [ ] 6.1 Create `ensemble.py` with EnsembleCombiner class
+- [x] 6. Implement ensemble combination logic
+  - [x] 6.1 Create `ensemble.py` with EnsembleCombiner class
     - Implement adaptive weighting based on data availability
     - Implement confidence score calculation (agreement + data + features)
     - Implement risk level classification (low/moderate/high/critical)
     - Implement explanation text generation
     - _Requirements: 2.5, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 7.1, 7.4, 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 6.2 Write property test for ensemble weight consistency
+- [x] 6.2 Write property test for ensemble weight consistency
   - **Property 15: Ensemble Weight Consistency**
   - **Validates: Requirements 2.5**
   - Test that rule_weight + ml_weight = 1.0 for all predictions
 
-- [ ] 6.3 Write property test for confidence score bounds
+- [x] 6.3 Write property test for confidence score bounds
   - **Property 7: Confidence Score Bounds**
   - **Validates: Requirements 4.2, 9.5**
   - Test that confidence is always between 0.0 and 1.0
 
-- [ ] 6.4 Write property test for confidence and prediction agreement
+- [x] 6.4 Write property test for confidence and prediction agreement
   - **Property 11: Confidence Decreases with Divergence**
   - **Validates: Requirements 9.4**
   - Test that divergent predictions result in lower confidence
 
-- [ ] 6.5 Write property test for risk level classification
+- [x] 6.5 Write property test for risk level classification
   - **Property 8: Risk Level Classification**
   - **Validates: Requirements 4.3, 4.4, 4.5, 4.6, 4.7**
   - Test that risk_level is always one of: low, moderate, high, critical
 
-- [ ] 6.6 Write unit tests for risk level thresholds
+- [x] 6.6 Write unit tests for risk level thresholds
   - Test specific radius values map to correct risk levels
   - Test disaster-specific risk adjustments (e.g., magnitude > 7 = critical)
   - _Requirements: 4.4, 4.5, 4.6, 4.7_
 
-- [ ] 7. Implement main prediction orchestrator
-  - [ ] 7.1 Create `predictor.py` with ImpactRadiusPredictor class
+- [-] 7. Implement main prediction orchestrator
+  - [-] 7.1 Create `predictor.py` with ImpactRadiusPredictor class
     - Implement prediction pipeline (validate → rule → ML → ensemble)
     - Implement realistic bounds enforcement per disaster type
     - Implement GeoJSON output generation
@@ -252,3 +252,4 @@ This implementation plan breaks down the disaster impact radius prediction syste
 - The system integrates seamlessly with existing Backend/app.py
 - Initial deployment uses synthetic training data; replace with real data in production
 - All ML models have fallback to rule-based predictions for robustness
+
