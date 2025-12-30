@@ -204,7 +204,7 @@ export default function DisasterMap() {
 
     if (inDanger) {
       // Trigger emergency alerts
-      fetch('https://disha-backend-2b4i.onrender.com/api/alerts/trigger', {
+      fetch(' http://127.0.0.1:8000/api/alerts/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -215,7 +215,7 @@ export default function DisasterMap() {
       }).catch(() => {});
 
       // Fetch evacuation routes
-      fetch('https://disha-backend-2b4i.onrender.com/api/evacuation/trigger', {
+      fetch(' http://127.0.0.1:8000/api/evacuation/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
