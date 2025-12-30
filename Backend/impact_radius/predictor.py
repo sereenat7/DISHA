@@ -46,12 +46,13 @@ class ImpactRadiusPredictor:
     9. Enforce realistic bounds
     """
     
-    def __init__(self, models_dir: str = "Backend/impact_radius/models"):
+    def __init__(self, models_dir: str = None):
         """
         Initialize the impact radius predictor.
         
         Args:
-            models_dir: Directory containing trained ML models
+            models_dir: Directory containing trained ML models.
+                       If None, uses the default path relative to the module.
         """
         self.rule_engine = RuleEngine()
         self.ml_predictor = MLModelPredictor(models_dir=models_dir)

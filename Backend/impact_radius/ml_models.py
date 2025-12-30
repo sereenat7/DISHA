@@ -25,13 +25,19 @@ class MLModelPredictor:
     when models are unavailable or fail to load.
     """
     
-    def __init__(self, models_dir: str = "Backend/impact_radius/models"):
+    def __init__(self, models_dir: str = None):
         """
         Initialize the ML model predictor.
         
         Args:
-            models_dir: Directory containing trained model files
+            models_dir: Directory containing trained model files.
+                       If None, uses the default path relative to this file.
         """
+        if models_dir is None:
+            # Get the directory where this file is located
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            models_dir = os.path.join(current_dir, "models")
+        
         self.models_dir = models_dir
         self._model_cache: Dict[DisasterType, Optional[object]] = {}
         self._rule_engine = RuleEngine()

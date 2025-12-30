@@ -210,33 +210,33 @@ This implementation plan breaks down the disaster impact radius prediction syste
     - Review training metrics (RMSE, R²)
     - _Requirements: 2.2_
 
-- [ ] 12. Final checkpoint and documentation
-  - [ ] 12.1 Run complete test suite
+- [x] 12. Final checkpoint and documentation
+  - [x] 12.1 Run complete test suite
     - Execute `pytest Backend/tests/test_impact_radius.py -v`
     - Ensure all unit tests pass
     - Ensure all property tests pass (100+ iterations each)
     - _Requirements: All_
 
-  - [ ] 12.2 Test API endpoint manually
+  - [x] 12.2 Test API endpoint manually
     - Start FastAPI server: `uvicorn Backend.app:app --reload`
     - Test with curl or Postman for each disaster type
     - Verify GeoJSON output format
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7_
 
-  - [ ] 12.3 Create API documentation examples
+  - [x] 12.3 Create API documentation examples
     - Add example requests for each disaster type to docstrings
     - Document feature requirements per disaster type
     - Document response format and GeoJSON structure
     - _Requirements: All_
 
-- [ ] 13. Integration with existing system
-  - [ ] 13.1 Test combined workflow
+- [x] 13. Integration with existing system
+  - [x] 13.1 Test combined workflow
     - Test impact radius prediction → evacuation routing integration
     - Verify radius can be used as input to evacuation system
     - Test with realistic disaster scenarios
     - _Requirements: All_
 
-  - [ ] 13.2 Update health check endpoint
+  - [x] 13.2 Update health check endpoint
     - Add impact radius system status to `/health` endpoint
     - Check if ML models are loaded
     - Report system readiness

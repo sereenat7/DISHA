@@ -209,6 +209,212 @@ async def predict_impact_radius(request: ImpactRadiusPredictionRequest):
     This endpoint uses a hybrid approach combining rule-based heuristics and 
     machine learning models to predict the geographical impact zone of a disaster.
     
+    ## Supported Disaster Types
+    
+    - **flood**: Requires rainfall_intensity, duration, elevation, river_proximity
+    - **earthquake**: Requires magnitude, depth, soil_type
+    - **fire**: Requires fire_intensity, wind_speed, wind_direction, humidity, temperature
+    - **cyclone**: Requires wind_speed, atmospheric_pressure, movement_speed, coastal_proximity
+    - **gas_leak**: Requires wind_speed, atmospheric_stability, leak_severity
+    
+    ## Feature Requirements by Disaster Type
+    
+    ### Flood
+    - `rainfall_intensity` (float): Rainfall intensity in mm/hour (0-500)
+    - `duration` (float): Duration in hours (0-168)
+    - `elevation` (float): Elevation in meters (-500 to 9000)
+    - `river_proximity` (float): Distance to nearest river in km (0-100)
+    
+    ### Earthquake
+    - `magnitude` (float): Richter scale magnitude (0-10)
+    - `depth` (float): Depth in kilometers (0-700)
+    - `soil_type` (float): Soil type category (1=rock, 2=dense_soil, 3=soft_soil, 4=sand, 5=fill)
+    
+    ### Fire
+    - `fire_intensity` (float): Fire intensity scale (0-100)
+    - `wind_speed` (float): Wind speed in km/h (0-200)
+    - `wind_direction` (float): Wind direction in degrees (0-360)
+    - `humidity` (float): Relative humidity percentage (0-100)
+    - `temperature` (float): Temperature in Celsius (-50 to 60)
+    
+    ### Cyclone
+    - `wind_speed` (float): Wind speed in km/h (0-200)
+    - `atmospheric_pressure` (float): Atmospheric pressure in hPa (870-1050)
+    - `movement_speed` (float): Cyclone movement speed in km/h (0-100)
+    - `coastal_proximity` (float): Distance to coast in km (0-1000)
+    
+    ### Gas Leak
+    - `wind_speed` (float): Wind speed in km/h (0-200)
+    - `atmospheric_stability` (float): Pasquill stability class (1=very unstable to 6=very stable)
+    - `leak_severity` (float): Leak severity scale (1-10)
+    
+    ## Request Examples
+    
+    ### Earthquake Example
+    ```json
+    {
+      "disaster_type": "earthquake",
+      "latitude": 34.05,
+      "longitude": -118.25,
+      "features": {
+        "magnitude": 6.5,
+        "depth": 10.0,
+        "soil_type": 3.0
+      }
+    }
+    ```
+    
+    ### Flood Example
+    ```json
+    {
+      "disaster_type": "flood",
+      "latitude": 19.1337,
+      "longitude": 72.8611,
+      "features": {
+        "rainfall_intensity": 50.0,
+        "duration": 12.0,
+        "elevation": 10.0,
+        "river_proximity": 2.0
+      }
+    }
+    ```
+    
+    ### Fire Example
+    ```json
+    {
+      "disaster_type": "fire",
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "features": {
+        "fire_intensity": 75.0,
+        "wind_speed": 30.0,
+        "wind_direction": 180.0,
+        "humidity": 20.0,
+        "temperature": 35.0
+      }
+    }
+    ```
+    
+    ### Cyclone Example
+    ```json
+    {
+      "disaster_type": "cyclone",
+      "latitude": 20.0,
+      "longitude": 85.0,
+      "features": {
+        "wind_speed": 150.0,
+        "atmospheric_pressure": 950.0,
+        "movement_speed": 20.0,
+        "coastal_proximity": 50.0
+      }
+    }
+    ```
+    
+    ### Gas Leak Example
+    ```json
+    {
+      "disaster_type": "gas_leak",
+      "latitude": 28.6139,
+      "longitude": 77.2090,
+      "features": {
+        "wind_speed": 15.0,
+        "atmospheric_stability": 3.0,
+        "leak_severity": 7.0
+      }
+    }
+    ```
+    
+    ## Response Format
+    
+    The response includes:
+    - `radius_km`: Predicted impact radius in kilometers (always positive)
+    - `confidence_score`: Confidence level between 0.0 and 1.0
+    - `risk_level`: Classification as "low", "moderate", "high", or "critical"
+    - `method_used`: Prediction method ("rule_based", "ml_based", or "hybrid")
+    - `explanation`: Human-readable explanation of the prediction
+    - `epicenter`: Disaster epicenter coordinates (latitude, longitude)
+    - `timestamp`: ISO 8601 timestamp of prediction generation
+    - `geojson`: GeoJSON Feature for map visualization with Point geometry
+    
+    ### Response Example
+    ```json
+    {
+      "radius_km": 25.74,
+      "confidence_score": 0.85,
+      "risk_level": "high",
+      "method_used": "hybrid",
+      "explanation": "Earthquake magnitude 6.5 at shallow depth (10km) in soft soil area...",
+      "epicenter": {"latitude": 34.05, "longitude": -118.25},
+      "timestamp": "2024-01-15T10:30:00Z",
+      "geojson": {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [-118.25, 34.05]
+        },
+        "properties": {
+          "radius_km": 25.74,
+          "risk_level": "high",
+          "disaster_type": "earthquake"
+        }
+      }
+    }
+    ```
+    
+    ## GeoJSON Structure
+    
+    The `geojson` field contains a valid GeoJSON Feature with:
+    - **geometry.type**: Always "Point"
+    - **geometry.coordinates**: [longitude, latitude] (note: GeoJSON uses lon, lat order)
+    - **properties.radius_km**: Impact radius for drawing circles on maps
+    - **properties.risk_level**: For color-coding threat zones
+    - **properties.disaster_type**: Type of disaster
+    
+    Use the center point and radius to draw circular threat zones on mapping libraries
+    like Leaflet, Mapbox, or Google Maps.
+    
+    ## Error Responses
+    
+    ### 400 Bad Request - Missing Features
+    ```json
+    {
+      "detail": [
+        {
+          "type": "value_error",
+          "loc": ["body"],
+          "msg": "Value error, Missing required features for earthquake: ['soil_type']"
+        }
+      ]
+    }
+    ```
+    
+    ### 400 Bad Request - Invalid Coordinates
+    ```json
+    {
+      "detail": [
+        {
+          "type": "less_than_equal",
+          "loc": ["body", "latitude"],
+          "msg": "Input should be less than or equal to 90"
+        }
+      ]
+    }
+    ```
+    
+    ### 400 Bad Request - Out of Range Feature
+    ```json
+    {
+      "detail": "Feature validation error: Feature 'magnitude' value 15.0 is out of valid range [0.0, 10.0]"
+    }
+    ```
+    
+    ### 500 Internal Server Error
+    ```json
+    {
+      "detail": "Internal server error: Failed to predict impact radius"
+    }
+    ```
+    
     Args:
         request: Prediction request containing disaster type, location, and features
         
