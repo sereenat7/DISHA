@@ -2,3 +2,7 @@
 *.log
 __pycache__/
 disha/
+
+# Testing artifacts
+.pytest_cache/
+.hypothesis/
