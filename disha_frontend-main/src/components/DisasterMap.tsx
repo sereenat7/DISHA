@@ -3,7 +3,11 @@ import { MapContainer, TileLayer, Circle, Marker, Popup, Polyline, useMap } from
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MapPin, Cross, Shield, AlertTriangle, ChevronDown, ChevronUp, Volume2, Navigation } from 'lucide-react';
-import { Location } from '../types';
+
+interface Location {
+  lat: number;
+  lon: number;
+}
 
 interface SafeLocation {
   id: string;
@@ -72,6 +76,7 @@ export default function DisasterMap() {
   const [safeLocations, setSafeLocations] = useState<SafeLocation[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<SafeLocation | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [hasTriggeredAlerts, setHasTriggeredAlerts] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const oscillatorRef = useRef<OscillatorNode | null>(null);
@@ -191,7 +196,7 @@ export default function DisasterMap() {
   useEffect(() => {
     if (!userLocation || activeDisasters.length === 0) {
       setIsInDangerZone(false);
-      setSafeLocations([]);
+      // Don't clear safe locations or reset trigger flag if we've already loaded them
       return;
     }
 
@@ -202,9 +207,12 @@ export default function DisasterMap() {
 
     setIsInDangerZone(inDanger);
 
-    if (inDanger) {
+    // Only trigger APIs once when entering danger zone
+    if (inDanger && !hasTriggeredAlerts) {
+      setHasTriggeredAlerts(true);
+
       // Trigger emergency alerts
-      fetch('https://disha-backend-2b4i.onrender.com/api/alerts/trigger', {
+      fetch('https://disha-backend-2b4i.onrender.com//api/alerts/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -215,7 +223,7 @@ export default function DisasterMap() {
       }).catch(() => {});
 
       // Fetch evacuation routes
-      fetch('https://disha-backend-2b4i.onrender.com/api/evacuation/trigger', {
+      fetch('https://disha-backend-2b4i.onrender.com//api/evacuation/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -276,10 +284,12 @@ export default function DisasterMap() {
         .catch(() => {
           setSafeLocations([]);
         });
-    } else {
+    } else if (!inDanger && hasTriggeredAlerts) {
+      // Reset when leaving danger zone
+      setHasTriggeredAlerts(false);
       setSafeLocations([]);
     }
-  }, [userLocation, activeDisasters]);
+  }, [userLocation, activeDisasters, hasTriggeredAlerts]);
 
   const selectedRouteCoords = useMemo<[number, number][]>(() => {
     if (!selectedLocation?.routeGeometry || !Array.isArray(selectedLocation.routeGeometry)) {
@@ -321,7 +331,7 @@ export default function DisasterMap() {
         )}
       </div>
 
-      {/* Safe Locations Panel with AR Navigation Button Below */}
+      {/* Safe Locations Panel */}
       {safeLocations.length > 0 && (
         <div className="absolute top-24 right-4 z-20 bg-white rounded-2xl shadow-2xl w-64 max-h-[75vh] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between p-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-2xl">
@@ -331,49 +341,47 @@ export default function DisasterMap() {
             </button>
           </div>
           {panelOpen && (
-            <>
-              <div className="overflow-y-auto p-3 space-y-2 flex-1">
-                {safeLocations.map((loc) => (
-                  <div
-                    key={loc.id}
-                    onClick={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)}
-                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all shadow-sm ${
-                      selectedLocation?.id === loc.id
-                        ? 'border-green-500 bg-green-50 shadow-lg scale-105'
-                        : 'border-gray-200 hover:border-gray-400'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{loc.type === 'hospital' ? '🏥' : '🏠'}</span>
-                      <div>
-                        <p className="font-semibold text-sm truncate">{loc.name}</p>
-                        <p className="text-xs text-gray-600">{loc.lat.toFixed(4)}, {loc.lon.toFixed(4)}</p>
-                      </div>
+            <div className="overflow-y-auto p-3 space-y-2 flex-1">
+              {safeLocations.map((loc) => (
+                <div
+                  key={loc.id}
+                  onClick={() => setSelectedLocation(selectedLocation?.id === loc.id ? null : loc)}
+                  className={`p-3 rounded-lg border-2 cursor-pointer transition-all shadow-sm ${
+                    selectedLocation?.id === loc.id
+                      ? 'border-green-500 bg-green-50 shadow-lg scale-105'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{loc.type === 'hospital' ? '🏥' : '🏠'}</span>
+                    <div>
+                      <p className="font-semibold text-sm truncate">{loc.name}</p>
+                      <p className="text-xs text-gray-600">{loc.lat.toFixed(4)}, {loc.lon.toFixed(4)}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-
-              {/* AR Navigation Button Below the Panel */}
-              <div className="p-3 border-t border-gray-200">
-                <button
-                  onClick={() => {
-                    if (selectedLocation) {
-                      const url = `https://www.google.com/maps/dir/?api=1&destination=${selectedLocation.lat},${selectedLocation.lon}&travelmode=walking`;
-                      window.open(url, '_blank');
-                    } else {
-                      alert('Please select a safe location first to start AR Navigation');
-                    }
-                  }}
-                  className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 transition-all"
-                >
-                  <Navigation size={24} />
-                  AR Navigation
-                </button>
-              </div>
-            </>
+                </div>
+              ))}
+            </div>
           )}
         </div>
+      )}
+
+      {/* AR Navigation Button - Bottom Left */}
+      {safeLocations.length > 0 && (
+        <button
+          onClick={() => {
+            if (selectedLocation) {
+              const url = `https://majestic-cactus-a3fab7.netlify.app/`;
+              window.open(url, '_blank');
+            } else {
+              alert('Please select a safe location first to start AR Navigation');
+            }
+          }}
+          className="absolute bottom-6 left-6 z-20 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-2xl flex items-center gap-3 transition-all hover:scale-105"
+        >
+          <Navigation size={28} />
+          AR Navigation
+        </button>
       )}
 
       <MapContainer center={[center.lat, center.lon]} zoom={14} className="w-full h-full">

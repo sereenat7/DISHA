@@ -18,15 +18,42 @@ app = FastAPI(
 )
 
 # -----------------------------
-# ✅ CORS POLICY (GITHUB FIX)
+# ✅ ENHANCED CORS POLICY FOR RENDER
 # -----------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Replace with frontend URL in production
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly include OPTIONS
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# -----------------------------
+# ✅ EXPLICIT OPTIONS HANDLERS (FIX FOR 405 ERRORS)
+# -----------------------------
+@app.options("/api/alerts/trigger")
+async def options_alerts_handler():
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.options("/api/evacuation/trigger")
+async def options_evacuation_handler():
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # -----------------------------
 # Root & Health
@@ -180,15 +207,14 @@ async def trigger_evacuation(
         )
 
 
-# -----------------------------19.1337, 72.8611
-
-
-# Run Server
+# -----------------------------
+# Run Server (Render Compatible)
 # -----------------------------
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # ✅ Render uses PORT env variable
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True
     )
