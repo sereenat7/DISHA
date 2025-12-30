@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/agentic_disaster_response/alert_dispatcher.py
+# hypothesis_version: 6.148.8
+
+[0.0, 0.1, 0.3, 1.0, 30.0, 1000, 'alert_id', 'backup', 'channels', 'channels_used', 'dispatch_timestamp', 'failure_rate', 'message', 'metadata', 'recipients', 'recipients_notified', 'total_executions', 'unknown']

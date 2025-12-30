@@ -15,6 +15,7 @@ class MCPToolType(Enum):
     CONTEXT = "context"
     COMMUNICATION = "communication"
     MONITORING = "monitoring"
+    NEWS = "news"
 
 
 @dataclass

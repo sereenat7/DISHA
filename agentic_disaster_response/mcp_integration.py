@@ -169,6 +169,8 @@ class MCPDataFormatter:
             return self._format_for_routing_tool(base_data, alert_data, tool_configuration)
         elif tool_config.tool_type == MCPToolType.CONTEXT:
             return self._format_for_context_tool(base_data, alert_data, tool_configuration)
+        elif tool_config.tool_type == MCPToolType.NEWS:
+            return self._format_for_news_tool(base_data, alert_data, tool_configuration)
         else:
             # Generic formatting for other tool types
             return self._format_generic(base_data, alert_data, tool_configuration)
@@ -240,6 +242,21 @@ class MCPDataFormatter:
         formatted_data.update(config.parameters)
         return formatted_data
 
+    def _format_for_news_tool(self, base_data: Dict[str, Any], alert_data: AlertData,
+                              config: ToolConfiguration) -> Dict[str, Any]:
+        """Format data specifically for news tools."""
+        formatted_data = base_data.copy()
+        formatted_data.update({
+            "operations": config.parameters.get("operations", ["current_disasters"]),
+            "severity": alert_data.context.disaster_info.severity.value,
+            "affected_population": alert_data.context.affected_population.total_population,
+            "evacuation_routes_available": len(alert_data.context.evacuation_routes),
+            "administrative_area": alert_data.context.disaster_info.location.administrative_area
+        })
+
+        formatted_data.update(config.parameters)
+        return formatted_data
+
     def _format_generic(self, base_data: Dict[str, Any], alert_data: AlertData,
                         config: ToolConfiguration) -> Dict[str, Any]:
         """Generic formatting for unspecified tool types."""
@@ -285,25 +302,41 @@ class MCPConfigurationManager:
                     endpoint="mcp://alert/critical",
                     timeout_seconds=30,
                     max_retries=3,
-                    parameters={"broadcast": True, "escalate": True}
+                    parameters={
+                        "channels": ["emergency_broadcast", "mobile_push", "sms", "voice_call", "email"],
+                        "broadcast_radius_km": 15,
+                        "escalate": True
+                    }
                 ),
                 PriorityLevel.HIGH: ToolConfiguration(
                     endpoint="mcp://alert/high",
                     timeout_seconds=60,
                     max_retries=2,
-                    parameters={"broadcast": True, "escalate": False}
+                    parameters={
+                        "channels": ["mobile_push", "sms", "email"],
+                        "broadcast_radius_km": 10,
+                        "escalate": False
+                    }
                 ),
                 PriorityLevel.MEDIUM: ToolConfiguration(
                     endpoint="mcp://alert/medium",
                     timeout_seconds=120,
                     max_retries=1,
-                    parameters={"broadcast": False, "escalate": False}
+                    parameters={
+                        "channels": ["mobile_push", "email", "web_notification"],
+                        "broadcast_radius_km": 5,
+                        "escalate": False
+                    }
                 ),
                 PriorityLevel.LOW: ToolConfiguration(
                     endpoint="mcp://alert/low",
                     timeout_seconds=300,
                     max_retries=1,
-                    parameters={"broadcast": False, "escalate": False}
+                    parameters={
+                        "channels": ["email", "web_notification"],
+                        "broadcast_radius_km": 3,
+                        "escalate": False
+                    }
                 )
             },
             fallback_tools=["backup_alert_tool"],
@@ -319,22 +352,31 @@ class MCPConfigurationManager:
                     endpoint="mcp://routing/critical",
                     timeout_seconds=45,
                     max_retries=3,
-                    parameters={"real_time_updates": True,
-                                "alternative_routes": 3}
+                    parameters={
+                        "operations": ["primary_routing", "alternative_routing", "real_time_updates", "capacity_monitoring", "navigation_integration"],
+                        "max_alternative_routes": 3,
+                        "real_time_updates": True
+                    }
                 ),
                 PriorityLevel.HIGH: ToolConfiguration(
                     endpoint="mcp://routing/high",
                     timeout_seconds=90,
                     max_retries=2,
-                    parameters={"real_time_updates": True,
-                                "alternative_routes": 2}
+                    parameters={
+                        "operations": ["primary_routing", "alternative_routing", "real_time_updates", "navigation_integration"],
+                        "max_alternative_routes": 2,
+                        "real_time_updates": True
+                    }
                 ),
                 PriorityLevel.MEDIUM: ToolConfiguration(
                     endpoint="mcp://routing/medium",
                     timeout_seconds=180,
                     max_retries=1,
-                    parameters={"real_time_updates": False,
-                                "alternative_routes": 1}
+                    parameters={
+                        "operations": ["primary_routing", "alternative_routing", "capacity_monitoring"],
+                        "max_alternative_routes": 1,
+                        "real_time_updates": False
+                    }
                 )
             },
             fallback_tools=["backup_routing_tool"],
@@ -350,32 +392,85 @@ class MCPConfigurationManager:
                     endpoint="mcp://context/critical",
                     timeout_seconds=30,
                     max_retries=2,
-                    parameters={"detailed_analysis": True,
-                                "real_time_data": True}
+                    parameters={
+                        "operations": ["data_collection", "situational_awareness", "data_validation", "context_sharing", "historical_analysis"],
+                        "data_sources": ["weather_service", "traffic_service", "social_media", "sensor_network"],
+                        "sharing_targets": ["emergency_services", "local_government", "media_outlets", "public_systems"],
+                        "detailed_analysis": True,
+                        "real_time_data": True
+                    }
                 ),
                 PriorityLevel.HIGH: ToolConfiguration(
                     endpoint="mcp://context/high",
                     timeout_seconds=60,
                     max_retries=2,
-                    parameters={"detailed_analysis": True,
-                                "real_time_data": False}
+                    parameters={
+                        "operations": ["data_collection", "situational_awareness", "data_validation", "context_sharing"],
+                        "data_sources": ["weather_service", "traffic_service", "social_media"],
+                        "sharing_targets": ["emergency_services", "local_government"],
+                        "detailed_analysis": True,
+                        "real_time_data": False
+                    }
                 ),
                 PriorityLevel.MEDIUM: ToolConfiguration(
                     endpoint="mcp://context/medium",
                     timeout_seconds=120,
                     max_retries=1,
-                    parameters={"detailed_analysis": False,
-                                "real_time_data": False}
+                    parameters={
+                        "operations": ["data_collection", "data_validation", "context_sharing"],
+                        "data_sources": ["weather_service", "traffic_service"],
+                        "sharing_targets": ["emergency_services"],
+                        "detailed_analysis": False,
+                        "real_time_data": False
+                    }
                 )
             },
             fallback_tools=["backup_context_tool"],
             description="Default context management tool"
         )
 
+        # Default News Tool Configuration
+        news_tool = MCPToolConfig(
+            tool_name="default_news_tool",
+            tool_type=MCPToolType.NEWS,
+            priority_mapping={
+                PriorityLevel.CRITICAL: ToolConfiguration(
+                    endpoint="mcp://news/critical",
+                    timeout_seconds=45,
+                    max_retries=2,
+                    parameters={"operations": [
+                        "current_disasters", "emergency_bulletin", "safety_instructions"]}
+                ),
+                PriorityLevel.HIGH: ToolConfiguration(
+                    endpoint="mcp://news/high",
+                    timeout_seconds=60,
+                    max_retries=2,
+                    parameters={"operations": [
+                        "disaster_context", "emergency_bulletin"]}
+                ),
+                PriorityLevel.MEDIUM: ToolConfiguration(
+                    endpoint="mcp://news/medium",
+                    timeout_seconds=90,
+                    max_retries=1,
+                    parameters={"operations": [
+                        "current_disasters", "disaster_context"]}
+                ),
+                PriorityLevel.LOW: ToolConfiguration(
+                    endpoint="mcp://news/low",
+                    timeout_seconds=120,
+                    max_retries=1,
+                    parameters={"operations": ["current_disasters"]}
+                )
+            },
+            fallback_tools=[],
+            description="News and information tool using Groq AI"
+        )
+
         # Register all default tools
         self.registry.register_tool(alert_tool)
         self.registry.register_tool(routing_tool)
         self.registry.register_tool(context_tool)
+        self.registry.register_tool(news_tool)
 
         self.logger.info("Loaded default MCP tool configurations")
 

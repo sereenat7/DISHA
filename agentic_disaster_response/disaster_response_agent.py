@@ -23,31 +23,161 @@ from .core.exceptions import (
     DisasterResponseError, ContextBuildingError, PriorityAnalysisError,
     AlertDispatchError, FastAPIIntegrationError
 )
-from Backend.evacuation_system.main import find_evacuation_routes, get_safe_locations
+
+# Import required enums and classes
+from .models.disaster_data import DisasterType, SeverityLevel
 
 
 async def get_disaster_data(disaster_id: str) -> DisasterData:
     """
-    Mock function to retrieve disaster data from FastAPI backend.
-    In a real implementation, this would query the actual backend API.
+    Retrieve disaster data from FastAPI backend.
+    This function interfaces with the FastAPI backend's disaster data storage.
     """
-    # This is a placeholder implementation for testing
-    # In production, this would make an HTTP request to the FastAPI backend
+    try:
+        # Use HTTP call to get data from the same FastAPI instance
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            # Call the internal disaster data endpoint
+            response = await client.get(f"http://127.0.0.1:8000/internal/disaster/{disaster_id}/data")
+
+            if response.status_code == 200:
+                data_dict = response.json()
+                # Convert the dictionary back to DisasterData object
+                return await _convert_dict_to_disaster_data(data_dict)
+            elif response.status_code == 404:
+                raise FastAPIIntegrationError(
+                    f"No disaster data found for ID: {disaster_id}",
+                    disaster_id=disaster_id,
+                    component="FastAPIBackend"
+                )
+            else:
+                raise FastAPIIntegrationError(
+                    f"Failed to retrieve disaster data: HTTP {response.status_code}",
+                    disaster_id=disaster_id,
+                    component="FastAPIBackend"
+                )
+
+    except httpx.RequestError as e:
+        # Fallback to direct import if HTTP call fails
+        logger.warning(f"HTTP call failed, trying direct import: {e}")
+        return await _get_disaster_data_direct_import(disaster_id)
+    except Exception as e:
+        raise FastAPIIntegrationError(
+            f"Failed to retrieve disaster data from FastAPI backend: {e}",
+            disaster_id=disaster_id,
+            component="FastAPIBackend"
+        ) from e
+
+
+async def _get_disaster_data_direct_import(disaster_id: str) -> DisasterData:
+    """Fallback method using direct import."""
+    try:
+        # Import the storage function from the FastAPI backend
+        import sys
+        import os
+
+        # Add Backend directory to path if not already there
+        backend_path = os.path.join(os.path.dirname(
+            os.path.dirname(__file__)), 'Backend')
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+
+        # Import the storage function
+        from evacuation_system.main import _get_stored_disaster_data
+
+        # Retrieve disaster data from storage
+        disaster_data = await _get_stored_disaster_data(disaster_id)
+
+        if not disaster_data:
+            raise FastAPIIntegrationError(
+                f"No disaster data found for ID: {disaster_id}",
+                disaster_id=disaster_id,
+                component="FastAPIBackend"
+            )
+
+        return disaster_data
+
+    except ImportError as e:
+        # Fallback to mock data if FastAPI backend is not available
+        logger.warning(f"FastAPI backend not available, using mock data: {e}")
+        return await _create_mock_disaster_data(disaster_id)
+
+
+async def _convert_dict_to_disaster_data(data_dict: dict) -> DisasterData:
+    """Convert dictionary from API response back to DisasterData object."""
+    from .models.disaster_data import DisasterData, DisasterType, SeverityLevel, GeographicalArea, ImpactAssessment
     from .models.location import Location
-    from .models.disaster_data import GeographicalArea, ImpactAssessment
+    from datetime import datetime
+
+    # Convert location
+    location_data = data_dict['location']
+    location = Location(
+        latitude=location_data['latitude'],
+        longitude=location_data['longitude'],
+        address=location_data['address'],
+        administrative_area=location_data['administrative_area']
+    )
+
+    # Convert affected areas
+    affected_areas = []
+    for area_data in data_dict['affected_areas']:
+        area_location = Location(
+            latitude=area_data['center']['latitude'],
+            longitude=area_data['center']['longitude'],
+            address=area_data['center']['address'],
+            administrative_area=area_data['center']['administrative_area']
+        )
+        area = GeographicalArea(
+            center=area_location,
+            radius_km=area_data['radius_km'],
+            area_name=area_data['area_name']
+        )
+        affected_areas.append(area)
+
+    # Convert impact assessment
+    impact_data = data_dict['estimated_impact']
+    impact = ImpactAssessment(
+        estimated_affected_population=impact_data['estimated_affected_population'],
+        estimated_casualties=impact_data['estimated_casualties'],
+        infrastructure_damage_level=SeverityLevel(
+            impact_data['infrastructure_damage_level'])
+    )
+
+    # Create DisasterData object
+    disaster_data = DisasterData(
+        disaster_id=data_dict['disaster_id'],
+        disaster_type=DisasterType(data_dict['disaster_type']),
+        location=location,
+        severity=SeverityLevel(data_dict['severity']),
+        timestamp=datetime.fromisoformat(
+            data_dict['timestamp'].replace('Z', '+00:00')),
+        affected_areas=affected_areas,
+        estimated_impact=impact,
+        description=data_dict['description'],
+        source=data_dict['source']
+    )
+
+    return disaster_data
+
+
+async def _create_mock_disaster_data(disaster_id: str) -> DisasterData:
+    """Create mock disaster data when FastAPI backend is not available."""
+    from .models.location import Location
+    from .models.disaster_data import GeographicalArea, ImpactAssessment, DisasterType, SeverityLevel
 
     # Create mock disaster data for testing
     location = Location(
         latitude=52.5200,
         longitude=13.4050,
-        address="Test Location",
+        address="Mock Disaster Location",
         administrative_area="test_area"
     )
 
     affected_area = GeographicalArea(
         center=location,
         radius_km=5.0,
-        area_name="Test Affected Area"
+        area_name="Mock Affected Area"
     )
 
     impact = ImpactAssessment(
@@ -851,6 +981,35 @@ class DisasterResponseAgent:
         except Exception:
             return False
 
+    async def _test_context_builder_health(self) -> bool:
+        """Test context builder component health."""
+        try:
+            # Test if context builder is properly initialized and functional
+            return (self.context_builder is not None and
+                    hasattr(self.context_builder, 'build_context') and
+                    self.context_builder.search_radius_km > 0)
+        except Exception:
+            return False
+
+    async def _test_alert_prioritizer_health(self) -> bool:
+        """Test alert prioritizer component health."""
+        try:
+            # Test if alert prioritizer is properly initialized and functional
+            return (self.alert_prioritizer is not None and
+                    hasattr(self.alert_prioritizer, 'analyze_priority_with_fallback'))
+        except Exception:
+            return False
+
+    async def _test_alert_dispatcher_health(self) -> bool:
+        """Test alert dispatcher component health."""
+        try:
+            # Test if alert dispatcher is properly initialized and functional
+            return (self.alert_dispatcher is not None and
+                    hasattr(self.alert_dispatcher, 'dispatch_alerts') and
+                    len(self.alert_dispatcher.registry.get_enabled_tools()) > 0)
+        except Exception:
+            return False
+
     def get_active_disasters(self) -> Dict[str, DisasterResponse]:
         """Get currently active disaster processing operations."""
         return self.active_disasters.copy()
@@ -1245,9 +1404,9 @@ class DisasterResponseAgent:
             component_tests = {
                 "fastapi_backend": self._test_fastapi_connection,
                 "mcp_tools": self._test_mcp_tools_connection,
-                "context_builder": lambda: asyncio.create_task(asyncio.sleep(0.01)) or True,
-                "alert_prioritizer": lambda: asyncio.create_task(asyncio.sleep(0.01)) or True,
-                "alert_dispatcher": lambda: asyncio.create_task(asyncio.sleep(0.01)) or True
+                "context_builder": self._test_context_builder_health,
+                "alert_prioritizer": self._test_alert_prioritizer_health,
+                "alert_dispatcher": self._test_alert_dispatcher_health
             }
 
             for component, test_func in component_tests.items():

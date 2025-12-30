@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/agentic_disaster_response/mcp_tools/backup_tools.py
+# hypothesis_version: 6.148.8
+
+[0.03, 0.05, 0.1, 0.6, 0.7, 0.8, 100, 1000, 5000, 'adequate', 'affected_population', 'alert', 'alert_id', 'analysis_confidence', 'assessment', 'available_resources', 'basic_assessment', 'capacity', 'capacity_utilization', 'completed', 'context', 'context_completeness', 'context_summary', 'current_load', 'data_completeness', 'delivery_channels', 'delivery_status', 'delivery_timestamp', 'disaster_location', 'disaster_type', 'estimated_recipients', 'existing_routes', 'fallback_reason', 'latitude', 'limited', 'local_notification', 'location', 'longitude', 'medical_facilities', 'message', 'method', 'population_affected', 'priority', 'processing_timestamp', 'recipients', 'recommendations', 'risk_score', 'route_id', 'routes_count', 'routes_processed', 'routing', 'severity', 'severity_level', 'shelters', 'summary', 'system_log', 'timestamp']
