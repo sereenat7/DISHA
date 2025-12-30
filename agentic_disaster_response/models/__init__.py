@@ -11,14 +11,15 @@ from .disaster_data import (
     ProcessingStatus
 )
 from .location import Location, Coordinate
-from .alert_priority import AlertPriority, PriorityLevel
+from .alert_priority import AlertPriority, PriorityLevel, ResourceType
 from .context import (
     StructuredContext,
     GeographicalContext,
     PopulationData,
     ResourceInventory,
     RiskMetrics,
-    EnrichedContext
+    EnrichedContext,
+    EvacuationRoute
 )
 from .response import DisasterResponse, DispatchResult, ErrorRecord
 from .mcp_tools import MCPToolConfig, ToolConfiguration
@@ -34,12 +35,14 @@ __all__ = [
     "Coordinate",
     "AlertPriority",
     "PriorityLevel",
+    "ResourceType",
     "StructuredContext",
     "GeographicalContext",
     "PopulationData",
     "ResourceInventory",
     "RiskMetrics",
     "EnrichedContext",
+    "EvacuationRoute",
     "DisasterResponse",
     "DispatchResult",
     "ErrorRecord",
