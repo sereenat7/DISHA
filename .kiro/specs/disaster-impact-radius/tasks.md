@@ -119,40 +119,40 @@ This implementation plan breaks down the disaster impact radius prediction syste
   - Test disaster-specific risk adjustments (e.g., magnitude > 7 = critical)
   - _Requirements: 4.4, 4.5, 4.6, 4.7_
 
-- [-] 7. Implement main prediction orchestrator
-  - [-] 7.1 Create `predictor.py` with ImpactRadiusPredictor class
+- [x] 7. Implement main prediction orchestrator
+  - [x] 7.1 Create `predictor.py` with ImpactRadiusPredictor class
     - Implement prediction pipeline (validate → rule → ML → ensemble)
     - Implement realistic bounds enforcement per disaster type
     - Implement GeoJSON output generation
     - Implement error handling and logging
     - _Requirements: 4.1, 6.1, 6.2, 6.3, 6.4, 8.1, 8.2, 8.3, 10.5_
 
-- [ ] 7.2 Write property test for radius positivity
+- [x] 7.2 Write property test for radius positivity
   - **Property 9: Radius Positivity**
   - **Validates: Requirements 6.3**
   - Test that predicted radius is always positive and non-zero
 
-- [ ] 7.3 Write property test for realistic bounds
+- [x] 7.3 Write property test for realistic bounds
   - **Property 10: Realistic Bounds Enforcement**
   - **Validates: Requirements 8.1, 8.2, 8.3**
   - Test that radius is within min/max bounds for each disaster type
 
-- [ ] 7.4 Write property test for output completeness
+- [x] 7.4 Write property test for output completeness
   - **Property 6: Output Completeness**
   - **Validates: Requirements 4.1, 4.2, 4.3, 4.8, 5.6, 5.7**
   - Test that all required fields are present in prediction response
 
-- [ ] 7.5 Write property test for explanation non-empty
+- [x] 7.5 Write property test for explanation non-empty
   - **Property 12: Explanation Non-Empty**
   - **Validates: Requirements 7.1**
   - Test that explanation field is always non-empty
 
-- [ ] 7.6 Write property test for coordinate validity
+- [x] 7.6 Write property test for coordinate validity
   - **Property 14: Coordinate Validity**
   - **Validates: Requirements 5.2, 6.1**
   - Test that latitude is in [-90, 90] and longitude in [-180, 180]
 
-- [ ] 8. Checkpoint - Ensure all tests pass
+- [x] 8. Checkpoint - Ensure all tests pass
   - Run complete test suite
   - Verify end-to-end prediction flow works
   - Ensure all tests pass, ask the user if questions arise

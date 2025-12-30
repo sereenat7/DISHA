@@ -1443,3 +1443,298 @@ class TestEnsembleCombiner:
             "Explanation should mention risk level"
         assert "3.5" in explanation or "3.5km" in explanation.lower(), \
             "Explanation should include predicted radius"
+
+
+# ============================================================================
+# Property Tests for Main Prediction Orchestrator
+# ============================================================================
+
+# Property 9: Radius Positivity
+# Validates: Requirements 6.3
+@settings(max_examples=20)
+@given(
+    disaster_type=disaster_types,
+    latitude=st.floats(min_value=-90.0, max_value=90.0, allow_nan=False, allow_infinity=False),
+    longitude=st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False),
+    features=st.data()
+)
+def test_property_9_radius_positivity(disaster_type, latitude, longitude, features):
+    """
+    Feature: disaster-impact-radius, Property 9: Radius Positivity
+    
+    For any disaster type with valid features and coordinates, the predicted
+    radius should always be positive and non-zero.
+    
+    Validates: Requirements 6.3
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Make prediction
+    response = predictor.predict(
+        disaster_type=disaster_type,
+        latitude=latitude,
+        longitude=longitude,
+        features=valid_feature_dict
+    )
+    
+    # Verify radius is positive and non-zero
+    assert response.radius_km > 0, \
+        f"Radius should be positive and non-zero, got {response.radius_km}"
+
+
+# Property 10: Realistic Bounds Enforcement
+# Validates: Requirements 8.1, 8.2, 8.3
+@settings(max_examples=20)
+@given(
+    disaster_type=disaster_types,
+    latitude=st.floats(min_value=-90.0, max_value=90.0, allow_nan=False, allow_infinity=False),
+    longitude=st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False),
+    features=st.data()
+)
+def test_property_10_realistic_bounds_enforcement(disaster_type, latitude, longitude, features):
+    """
+    Feature: disaster-impact-radius, Property 10: Realistic Bounds Enforcement
+    
+    For any disaster type with valid features, the predicted radius should
+    always be within the realistic min/max bounds for that disaster type.
+    
+    Validates: Requirements 8.1, 8.2, 8.3
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Make prediction
+    response = predictor.predict(
+        disaster_type=disaster_type,
+        latitude=latitude,
+        longitude=longitude,
+        features=valid_feature_dict
+    )
+    
+    # Verify radius is within bounds
+    min_radius, max_radius = RADIUS_BOUNDS[disaster_type]
+    assert min_radius <= response.radius_km <= max_radius, \
+        f"Radius {response.radius_km}km outside bounds [{min_radius}, {max_radius}] for {disaster_type}"
+
+
+# Property 6: Output Completeness
+# Validates: Requirements 4.1, 4.2, 4.3, 4.8, 5.6, 5.7
+@settings(max_examples=20)
+@given(
+    disaster_type=disaster_types,
+    latitude=st.floats(min_value=-90.0, max_value=90.0, allow_nan=False, allow_infinity=False),
+    longitude=st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False),
+    features=st.data()
+)
+def test_property_6_output_completeness(disaster_type, latitude, longitude, features):
+    """
+    Feature: disaster-impact-radius, Property 6: Output Completeness
+    
+    For any disaster type with valid features, the prediction response should
+    contain all required fields: radius_km, confidence_score, risk_level,
+    method_used, explanation, epicenter, timestamp, and geojson.
+    
+    Validates: Requirements 4.1, 4.2, 4.3, 4.8, 5.6, 5.7
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Make prediction
+    response = predictor.predict(
+        disaster_type=disaster_type,
+        latitude=latitude,
+        longitude=longitude,
+        features=valid_feature_dict
+    )
+    
+    # Verify all required fields are present
+    assert hasattr(response, 'radius_km'), "Response missing radius_km field"
+    assert hasattr(response, 'confidence_score'), "Response missing confidence_score field"
+    assert hasattr(response, 'risk_level'), "Response missing risk_level field"
+    assert hasattr(response, 'method_used'), "Response missing method_used field"
+    assert hasattr(response, 'explanation'), "Response missing explanation field"
+    assert hasattr(response, 'epicenter'), "Response missing epicenter field"
+    assert hasattr(response, 'timestamp'), "Response missing timestamp field"
+    assert hasattr(response, 'geojson'), "Response missing geojson field"
+    
+    # Verify field values are valid
+    assert response.radius_km > 0, "radius_km should be positive"
+    assert 0.0 <= response.confidence_score <= 1.0, "confidence_score should be in [0, 1]"
+    assert response.risk_level in ['low', 'moderate', 'high', 'critical'], \
+        f"risk_level should be valid, got {response.risk_level}"
+    assert response.method_used in ['rule_based', 'ml_based', 'hybrid'], \
+        f"method_used should be valid, got {response.method_used}"
+    assert len(response.explanation) > 0, "explanation should not be empty"
+    assert 'latitude' in response.epicenter, "epicenter missing latitude"
+    assert 'longitude' in response.epicenter, "epicenter missing longitude"
+    assert len(response.timestamp) > 0, "timestamp should not be empty"
+    assert response.geojson is not None, "geojson should not be None"
+
+
+# Property 12: Explanation Non-Empty
+# Validates: Requirements 7.1
+@settings(max_examples=20)
+@given(
+    disaster_type=disaster_types,
+    latitude=st.floats(min_value=-90.0, max_value=90.0, allow_nan=False, allow_infinity=False),
+    longitude=st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False),
+    features=st.data()
+)
+def test_property_12_explanation_non_empty(disaster_type, latitude, longitude, features):
+    """
+    Feature: disaster-impact-radius, Property 12: Explanation Non-Empty
+    
+    For any disaster type with valid features, the explanation field should
+    always be non-empty and contain meaningful text.
+    
+    Validates: Requirements 7.1
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Make prediction
+    response = predictor.predict(
+        disaster_type=disaster_type,
+        latitude=latitude,
+        longitude=longitude,
+        features=valid_feature_dict
+    )
+    
+    # Verify explanation is non-empty
+    assert len(response.explanation) > 0, "Explanation should not be empty"
+    assert len(response.explanation.strip()) > 0, "Explanation should not be just whitespace"
+
+
+# Property 14: Coordinate Validity
+# Validates: Requirements 5.2, 6.1
+@settings(max_examples=20)
+@given(
+    disaster_type=disaster_types,
+    latitude=st.floats(min_value=-90.0, max_value=90.0, allow_nan=False, allow_infinity=False),
+    longitude=st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False),
+    features=st.data()
+)
+def test_property_14_coordinate_validity(disaster_type, latitude, longitude, features):
+    """
+    Feature: disaster-impact-radius, Property 14: Coordinate Validity
+    
+    For any disaster type with valid features, the epicenter coordinates in
+    the response should match the input coordinates and be within valid ranges:
+    latitude in [-90, 90] and longitude in [-180, 180].
+    
+    Validates: Requirements 5.2, 6.1
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Make prediction
+    response = predictor.predict(
+        disaster_type=disaster_type,
+        latitude=latitude,
+        longitude=longitude,
+        features=valid_feature_dict
+    )
+    
+    # Verify epicenter coordinates are valid
+    assert 'latitude' in response.epicenter, "Epicenter missing latitude"
+    assert 'longitude' in response.epicenter, "Epicenter missing longitude"
+    
+    response_lat = response.epicenter['latitude']
+    response_lon = response.epicenter['longitude']
+    
+    # Verify coordinates are within valid ranges
+    assert -90.0 <= response_lat <= 90.0, \
+        f"Latitude {response_lat} outside valid range [-90, 90]"
+    assert -180.0 <= response_lon <= 180.0, \
+        f"Longitude {response_lon} outside valid range [-180, 180]"
+    
+    # Verify coordinates match input (with small tolerance for floating point)
+    assert abs(response_lat - latitude) < 1e-10, \
+        f"Response latitude {response_lat} doesn't match input {latitude}"
+    assert abs(response_lon - longitude) < 1e-10, \
+        f"Response longitude {response_lon} doesn't match input {longitude}"
+
+
+# Additional test: Invalid coordinates should raise ValueError
+@settings(max_examples=10)
+@given(
+    disaster_type=disaster_types,
+    features=st.data()
+)
+def test_invalid_coordinates_raise_error(disaster_type, features):
+    """
+    Test that invalid coordinates raise ValueError.
+    """
+    from impact_radius.predictor import ImpactRadiusPredictor
+    
+    # Create predictor
+    predictor = ImpactRadiusPredictor(models_dir="/nonexistent/path")
+    
+    # Generate valid features
+    valid_feature_dict = features.draw(complete_valid_features(disaster_type))
+    
+    # Test invalid latitude (> 90)
+    with pytest.raises(ValueError) as exc_info:
+        predictor.predict(
+            disaster_type=disaster_type,
+            latitude=95.0,
+            longitude=0.0,
+            features=valid_feature_dict
+        )
+    assert "latitude" in str(exc_info.value).lower()
+    
+    # Test invalid latitude (< -90)
+    with pytest.raises(ValueError) as exc_info:
+        predictor.predict(
+            disaster_type=disaster_type,
+            latitude=-95.0,
+            longitude=0.0,
+            features=valid_feature_dict
+        )
+    assert "latitude" in str(exc_info.value).lower()
+    
+    # Test invalid longitude (> 180)
+    with pytest.raises(ValueError) as exc_info:
+        predictor.predict(
+            disaster_type=disaster_type,
+            latitude=0.0,
+            longitude=185.0,
+            features=valid_feature_dict
+        )
+    assert "longitude" in str(exc_info.value).lower()
+    
+    # Test invalid longitude (< -180)
+    with pytest.raises(ValueError) as exc_info:
+        predictor.predict(
+            disaster_type=disaster_type,
+            latitude=0.0,
+            longitude=-185.0,
+            features=valid_feature_dict
+        )
+    assert "longitude" in str(exc_info.value).lower()
