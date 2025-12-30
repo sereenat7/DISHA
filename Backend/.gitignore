@@ -6,3 +6,4 @@ disha/
 # Testing artifacts
 .pytest_cache/
 .hypothesis/
+.hypothesis/constants/
