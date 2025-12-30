@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/agentic_disaster_response/core/error_handler.py
+# hypothesis_version: 6.148.8
+
+[0.5, 1.0, 60.0, 'CLOSED', 'CircuitBreaker', 'HALF_OPEN', 'Max retries exceeded', 'OPEN', 'attempt', 'component', 'critical', 'degraded', 'disaster_id', 'error', 'error_type', 'escalate', 'escalated', 'failed', 'fallback', 'fallback_failed', 'fallback_options', 'fallback_success', 'final_error', 'graceful_degradation', 'ignore', 'ignored', 'operation', 'reason', 'recovered', 'result', 'retry', 'status', 'strategy', 'unknown']

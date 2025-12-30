@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/agentic_disaster_response/models/disaster_data.py
+# hypothesis_version: 6.148.8
+
+['alert_dispatch', 'building_collapse', 'chemical_spill', 'completed', 'context_building', 'critical', 'earthquake', 'electrical', 'explosion', 'failed', 'fire', 'flood', 'high', 'low', 'medium', 'pending', 'priority_analysis', 'terrorist_attack', 'tornado', 'volcanic']

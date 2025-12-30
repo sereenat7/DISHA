@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/agentic_disaster_response/core/logging_config.py
+# hypothesis_version: 6.148.8
+
+[10485760, '()', 'INFO', 'backupCount', 'class', 'component', 'console', 'disaster_id', 'disaster_response', 'encoding', 'extra', 'file', 'filename', 'format', 'formatter', 'formatters', 'handlers', 'level', 'loggers', 'maxBytes', 'propagate', 'root', 'stream', 'utf8', 'version']
