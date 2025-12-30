@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 from datetime import datetime
@@ -16,7 +17,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# -----------------------------
+# ✅ CORS POLICY (GITHUB FIX)
+# -----------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace with frontend URL in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# -----------------------------
+# Root & Health
+# -----------------------------
 @app.get("/")
 def read_root():
     return {
@@ -42,13 +56,13 @@ def health_check():
     return {
         "status": "healthy" if twilio_configured else "configuration_incomplete",
         "twilio_configured": twilio_configured,
-        "overpass_osrm_reachable": True,  # We assume external services are up unless tested
+        "overpass_osrm_reachable": True,
         "timestamp": datetime.now().isoformat()
     }
 
 
 # -----------------------------
-# Existing: Twilio Alerts
+# Twilio Alerts
 # -----------------------------
 @app.get("/api/alerts/trigger")
 def trigger_alerts():
@@ -62,22 +76,22 @@ def trigger_alerts():
         if not twilio_configured:
             raise HTTPException(
                 status_code=500,
-                detail="Twilio credentials not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER."
+                detail="Twilio credentials not configured."
             )
 
         contacts = [
             {
-                'phone': '+918850755760',  # Joel
+                'phone': '+918850755760',
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
                 'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             },
             {
-                'phone': '+919529685725',  # Sereena
+                'phone': '+919529685725',
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
                 'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             },
             {
-                'phone': '+919322945843',  # Seanne
+                'phone': '+919322945843',
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
                 'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             }
@@ -88,8 +102,8 @@ def trigger_alerts():
         results = send_parallel_alerts(
             contacts,
             max_workers=5,
-            num_call_attempts=5,
-            wait_time_between_rounds=40
+            num_call_attempts=1,
+            wait_time_between_rounds=10
         )
 
         formatted_results = []
@@ -115,32 +129,31 @@ def trigger_alerts():
 
     except Exception as e:
         logger.error(f"Error triggering alerts: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # -----------------------------
-# New: Evacuation Routes
+# Evacuation Routes
 # -----------------------------
 @app.post("/api/evacuation/trigger")
 async def trigger_evacuation(
     user_id: str = Body(..., embed=True),
     user_lat: float = Body(..., embed=True),
     user_lon: float = Body(..., embed=True),
-    radius_km: float = Body(10.0, embed=True),  # default 10km
+    radius_km: float = Body(10.0, embed=True),
 ):
-    """
-    Trigger evacuation route calculation for a user in disaster zone.
-    Returns nearest hospitals, shelters/bunkers, underground parking with real road routes.
-    """
     try:
         if not (-90 <= user_lat <= 90):
-            raise HTTPException(status_code=400, detail="Invalid latitude. Must be between -90 and 90.")
+            raise HTTPException(status_code=400, detail="Invalid latitude.")
         if not (-180 <= user_lon <= 180):
-            raise HTTPException(status_code=400, detail="Invalid longitude. Must be between -180 and 180.")
+            raise HTTPException(status_code=400, detail="Invalid longitude.")
         if radius_km <= 0 or radius_km > 50:
             raise HTTPException(status_code=400, detail="Radius must be between 0 and 50 km.")
 
-        logger.info(f"Evacuation request for user {user_id} at ({user_lat}, {user_lon}), radius {radius_km}km")
+        logger.info(
+            f"Evacuation request for user {user_id} "
+            f"at ({user_lat}, {user_lon}), radius {radius_km}km"
+        )
 
         evacuation_data = await find_evacuation_routes(
             user_lat=user_lat,
@@ -148,9 +161,6 @@ async def trigger_evacuation(
             radius_km=radius_km,
             max_per_category=2
         )
-
-        # Optionally trigger alerts here in future (e.g. after routes are ready)
-        # await some_alert_function(evacuation_data)
 
         return JSONResponse(content={
             "status": "success",
@@ -163,14 +173,22 @@ async def trigger_evacuation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Evacuation routing failed for user {user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to compute evacuation routes. Please try again later.")
+        logger.error(f"Evacuation routing failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to compute evacuation routes."
+        )
 
 
+# -----------------------------19.1337, 72.8611
+
+
+# Run Server
+# -----------------------------
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
-
-
-
-#this is the actual fix for the github that we are mmaking right now !
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
