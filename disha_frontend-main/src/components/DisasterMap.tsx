@@ -208,7 +208,7 @@ export default function DisasterMap() {
     if (inDanger && !hasTriggeredAlerts) {
       setHasTriggeredAlerts(true);
 
-      const backendUrl = 'http://127.0.0.1:8000'; // Change to production URL when deploying
+      const backendUrl = 'https://disha-backend-2b4i.onrender.com'; // Change to production URL when deploying
 
       // 1. Trigger CALL ALERTS to emergency contacts
       fetch(`${backendUrl}/api/alerts/trigger`, {
