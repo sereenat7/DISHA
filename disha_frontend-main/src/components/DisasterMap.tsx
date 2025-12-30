@@ -14,10 +14,15 @@ interface SafeLocation {
   routeGeometry?: number[][]; // [[lon, lat], ...]
 }
 
-const THREAT_ZONE = {
-  center: { lat: 19.1337, lon: 72.8611 } as Location,
-  radiusKm: 5,
-};
+interface ActiveDisaster {
+  id: string;
+  type: string;
+  latitude: number;
+  longitude: number;
+  radius_meters: number;
+  severity: number;
+  created_at: string;
+}
 
 function calculateDistance(loc1: Location, loc2: Location): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -62,6 +67,7 @@ function MapController({ center }: { center: Location }) {
 
 export default function DisasterMap() {
   const [userLocation, setUserLocation] = useState<Location | null>(null);
+  const [activeDisasters, setActiveDisasters] = useState<ActiveDisaster[]>([]);
   const [isInDangerZone, setIsInDangerZone] = useState(false);
   const [safeLocations, setSafeLocations] = useState<SafeLocation[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<SafeLocation | null>(null);
@@ -80,12 +86,11 @@ export default function DisasterMap() {
     threat: useMemo(() => createCustomIcon(AlertTriangle, 'red'), []),
   };
 
-  // Critical: Pre-warm AudioContext on first mount to bypass autoplay policy
+  // Pre-warm AudioContext for auto-play
   useEffect(() => {
     const initAudio = () => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        // Create silent buffer to "unlock" audio immediately
         const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
         const source = audioContextRef.current.createBufferSource();
         source.buffer = buffer;
@@ -94,10 +99,8 @@ export default function DisasterMap() {
       }
     };
 
-    // Try to unlock as early as possible
     initAudio();
 
-    // Also unlock on any early interaction
     const unlock = () => initAudio();
     document.addEventListener('touchstart', unlock, { once: true });
     document.addEventListener('click', unlock, { once: true });
@@ -110,26 +113,14 @@ export default function DisasterMap() {
     };
   }, []);
 
-  // Start/stop buzzing alert based on danger zone
+  // Urgent buzzing sound
   useEffect(() => {
     if (!isInDangerZone || !audioContextRef.current) {
-      // Stop sound
-      if (beepIntervalRef.current) {
-        clearInterval(beepIntervalRef.current);
-        beepIntervalRef.current = null;
-      }
-      if (oscillatorRef.current) {
-        oscillatorRef.current.stop();
-        oscillatorRef.current = null;
-      }
-      if (gainNodeRef.current) {
-        gainNodeRef.current.disconnect();
-        gainNodeRef.current = null;
-      }
+      if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
+      if (oscillatorRef.current) oscillatorRef.current.stop();
       return;
     }
 
-    // Start urgent buzzing sound
     if (!oscillatorRef.current) {
       oscillatorRef.current = audioContextRef.current.createOscillator();
       gainNodeRef.current = audioContextRef.current.createGain();
@@ -138,13 +129,12 @@ export default function DisasterMap() {
       gainNodeRef.current.connect(audioContextRef.current.destination);
 
       oscillatorRef.current.type = 'sine';
-      oscillatorRef.current.frequency.value = 950; // Very urgent high pitch
+      oscillatorRef.current.frequency.value = 950;
       gainNodeRef.current.gain.value = 0;
 
       oscillatorRef.current.start();
     }
 
-    // Fast repeating beeps: BEEP-BEEP-BEEP (every 800ms)
     beepIntervalRef.current = setInterval(() => {
       if (gainNodeRef.current && audioContextRef.current) {
         const now = audioContextRef.current.currentTime;
@@ -159,6 +149,7 @@ export default function DisasterMap() {
     };
   }, [isInDangerZone]);
 
+  // Get user location
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -171,15 +162,46 @@ export default function DisasterMap() {
     }
   }, []);
 
+  // Poll active disasters from DISHA dashboard backend (Render)
   useEffect(() => {
     if (!userLocation) return;
 
-    const dist = calculateDistance(userLocation, THREAT_ZONE.center);
-    const inDanger = dist <= THREAT_ZONE.radiusKm;
+    const fetchActiveDisasters = async () => {
+      try {
+        const res = await fetch('https://disha-9gu7.onrender.com/disaster/active');
+        if (!res.ok) throw new Error('Failed to fetch active disasters');
+        const data = await res.json();
+        const disasters = data.active_disasters || [];
+        setActiveDisasters(disasters);
+      } catch (err) {
+        console.error('Error fetching active disasters:', err);
+        setError('No connection to disaster control center');
+      }
+    };
+
+    fetchActiveDisasters();
+    const interval = setInterval(fetchActiveDisasters, 5000); // Every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [userLocation]);
+
+  // Check danger + trigger evacuation/alerts
+  useEffect(() => {
+    if (!userLocation || activeDisasters.length === 0) {
+      setIsInDangerZone(false);
+      setSafeLocations([]);
+      return;
+    }
+
+    const inDanger = activeDisasters.some((disaster) => {
+      const distKm = calculateDistance(userLocation, { lat: disaster.latitude, lon: disaster.longitude });
+      return distKm <= (disaster.radius_meters / 1000);
+    });
+
     setIsInDangerZone(inDanger);
 
     if (inDanger) {
-      // Trigger emergency alerts
+      // Trigger local alerts
       fetch('http://127.0.0.1:8000/api/alerts/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,14 +217,14 @@ export default function DisasterMap() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'web_test',
+          user_id: 'web_user',
           user_lat: userLocation.lat,
           user_lon: userLocation.lon,
           radius_km: 10,
         }),
       })
         .then(async (res) => {
-          if (!res.ok) throw new Error('Evacuation API failed');
+          if (!res.ok) throw new Error('Evacuation failed');
           return res.json();
         })
         .then((data) => {
@@ -254,14 +276,13 @@ export default function DisasterMap() {
           setError(null);
         })
         .catch((err) => {
-          console.error('Evacuation API error:', err);
-          setError('Failed to load safe locations');
-          setSafeLocations([]);
+          console.error('Evacuation error:', err);
+          setError('No safe routes available');
         });
     } else {
       setSafeLocations([]);
     }
-  }, [userLocation]);
+  }, [userLocation, activeDisasters]);
 
   const selectedRouteCoords = useMemo<[number, number][]>(() => {
     if (!selectedLocation?.routeGeometry || !Array.isArray(selectedLocation.routeGeometry)) {
@@ -270,34 +291,32 @@ export default function DisasterMap() {
 
     return selectedLocation.routeGeometry
       .filter((point): point is [number, number] => 
-        Array.isArray(point) && 
-        point.length === 2 && 
-        typeof point[0] === 'number' && 
-        typeof point[1] === 'number' &&
-        !isNaN(point[0]) && !isNaN(point[1])
+        Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number'
       )
       .map((point) => [point[1], point[0]] as [number, number]);
   }, [selectedLocation]);
 
-  const center = userLocation || THREAT_ZONE.center;
+  const center = userLocation || { lat: 19.0760, lon: 72.8777 };
 
   if (!userLocation) {
-    return <div className="w-full h-full flex items-center justify-center text-gray-500 text-xl">Getting your location...</div>;
+    return <div className="w-full h-full flex items-center justify-center text-gray-500 text-xl">Getting location...</div>;
   }
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* Top Danger Banner */}
+      {/* Top Banner */}
       <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-red-600 to-orange-600 text-white text-center py-4 font-bold shadow-2xl flex items-center justify-center gap-3">
         <Volume2 className="animate-pulse" size={32} />
-        DANGER ALERT — ACTIVE
+        {isInDangerZone ? 'DANGER ZONE ACTIVE' : 'SAFE'}
         <br />
         <span className="text-base">
-          Distance: {calculateDistance(userLocation, THREAT_ZONE.center).toFixed(1)} km from threat center
+          {activeDisasters.length > 0 
+            ? `${activeDisasters.length} active threat${activeDisasters.length > 1 ? 's' : ''}`
+            : 'No active threats'}
         </span>
       </div>
 
-      {/* Error Message */}
+      {/* Error */}
       {error && (
         <div className="absolute top-24 left-4 z-20 bg-red-100 text-red-700 px-4 py-3 rounded-lg shadow-lg">
           {error}
@@ -343,16 +362,28 @@ export default function DisasterMap() {
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapController center={center} />
 
-        <Circle
-          center={[THREAT_ZONE.center.lat, THREAT_ZONE.center.lon]}
-          radius={THREAT_ZONE.radiusKm * 1000}
-          pathOptions={{
-            color: '#991b1b',
-            weight: 6,
-            fillColor: '#ef4444',
-            fillOpacity: 0.35,
-          }}
-        />
+        {/* DYNAMIC THREAT CIRCLES FROM ADMIN DASHBOARD */}
+        {activeDisasters.map((disaster) => (
+          <Circle
+            key={disaster.id}
+            center={[disaster.latitude, disaster.longitude]}
+            radius={disaster.radius_meters}
+            pathOptions={{
+              color: '#991b1b',
+              weight: 6,
+              fillColor: '#ef4444',
+              fillOpacity: 0.35,
+            }}
+          >
+            <Popup>
+              <strong>{disaster.type} Alert</strong>
+              <br />
+              Radius: {(disaster.radius_meters / 1000).toFixed(1)} km
+              <br />
+              Severity: {disaster.severity}
+            </Popup>
+          </Circle>
+        ))}
 
         <Marker position={[userLocation.lat, userLocation.lon]} icon={icons.user}>
           <Popup>Your Location</Popup>
