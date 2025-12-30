@@ -7,3 +7,7 @@ disha/
 .pytest_cache/
 .hypothesis/
 .hypothesis/constants/
+ML_MODELS_STATUS_REPORT.md
+MODEL_STATUS.md
+API_DOCUMENTATION.md
+INTEGRATION_STATUS.md
