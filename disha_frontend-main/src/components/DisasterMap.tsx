@@ -15,7 +15,7 @@ interface SafeLocation {
   lat: number;
   lon: number;
   type: 'hospital' | 'shelter';
-  routeGeometry?: number[][]; // [[lon, lat], ...]
+  routeGeometry?: number[][]; // [[lon, lat], ...] from backend
 }
 
 interface ActiveDisaster {
@@ -161,7 +161,7 @@ export default function DisasterMap() {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => setUserLocation({ lat: 19.1200, lon: 72.8702 }),
+        () => setUserLocation({ lat: 19.1200, lon: 72.8702 }), // Fallback: Mumbai
         { enableHighAccuracy: true }
       );
     } else {
@@ -176,27 +176,24 @@ export default function DisasterMap() {
     const fetchActiveDisasters = async () => {
       try {
         const res = await fetch('https://disha-9gu7.onrender.com/disaster/active');
-        if (!res.ok) throw new Error('Failed');
+        if (!res.ok) throw new Error('Failed to fetch disasters');
         const data = await res.json();
-        const disasters = data.active_disasters || [];
-        setActiveDisasters(disasters);
+        setActiveDisasters(data.active_disasters || []);
       } catch (err) {
-        console.error('Failed to fetch active disasters');
+        console.error('Failed to fetch active disasters:', err);
         setActiveDisasters([]);
       }
     };
 
     fetchActiveDisasters();
     const interval = setInterval(fetchActiveDisasters, 5000);
-
     return () => clearInterval(interval);
   }, [userLocation]);
 
-  // Check if user is in any active disaster zone
+  // Check danger zone + trigger alerts/evacuation ONLY ONCE when entering
   useEffect(() => {
     if (!userLocation || activeDisasters.length === 0) {
       setIsInDangerZone(false);
-      // Don't clear safe locations or reset trigger flag if we've already loaded them
       return;
     }
 
@@ -207,87 +204,70 @@ export default function DisasterMap() {
 
     setIsInDangerZone(inDanger);
 
-    // Only trigger APIs once when entering danger zone
     if (inDanger && !hasTriggeredAlerts) {
       setHasTriggeredAlerts(true);
 
-      // Trigger emergency alerts
-      fetch('https://disha-backend-2b4i.onrender.com//api/alerts/trigger', {
+      const backendUrl = 'https://disha-backend-2b4i.onrender.com';
+
+      // 1. Trigger Alerts (POST, no body needed)
+      fetch(`${backendUrl}/api/alerts/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: 'web_emergency',
-          user_lat: userLocation.lat,
-          user_lon: userLocation.lon,
-        }),
-      }).catch(() => {});
+      }).catch((err) => console.error('Alert trigger failed:', err));
 
-      // Fetch evacuation routes
-      fetch('https://disha-backend-2b4i.onrender.com//api/evacuation/trigger', {
+      // 2. Trigger Evacuation Routes
+      fetch(`${backendUrl}/api/evacuation/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: 'web_user',
           user_lat: userLocation.lat,
           user_lon: userLocation.lon,
-          radius_km: 10,
+          radius_km: 10.0,
         }),
       })
-        .then(async (res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Evacuation API error: ${res.status}`);
+          return res.json();
+        })
         .then((data) => {
-          const routes = data?.evacuation_routes?.routes || {};
+          const routes = data?.evacuation_routes || {};
           const locations: SafeLocation[] = [];
 
-          if (Array.isArray(routes.hospitals)) {
-            routes.hospitals.forEach((item: any, i: number) => {
-              if (typeof item.lat === 'number' && typeof item.lon === 'number') {
-                locations.push({
-                  id: `h-${i}`,
-                  name: item.safe_location || 'Hospital',
-                  lat: item.lat,
-                  lon: item.lon,
-                  type: 'hospital',
-                  routeGeometry: Array.isArray(item.route?.geometry)
-                    ? item.route.geometry.filter((p: any) => Array.isArray(p) && p.length === 2)
-                    : [],
-                });
-              }
-            });
-          }
-
-          const shelterArrays = [
-            routes.bunkers_shelters || [],
-            routes.underground_parking || [],
-          ];
-
-          shelterArrays.forEach((arr) => {
-            if (Array.isArray(arr)) {
-              arr.forEach((item: any, i: number) => {
+          const addLocations = (items: any[], type: 'hospital' | 'shelter', prefix: string) => {
+            if (Array.isArray(items)) {
+              items.forEach((item: any, i: number) => {
                 if (typeof item.lat === 'number' && typeof item.lon === 'number') {
                   locations.push({
-                    id: `s-${Date.now()}-${i}`,
-                    name: item.safe_location || 'Shelter',
+                    id: `${prefix}-${Date.now()}-${i}`,
+                    name: item.safe_location || (type === 'hospital' ? 'Hospital' : 'Safe Shelter'),
                     lat: item.lat,
                     lon: item.lon,
-                    type: 'shelter',
+                    type,
                     routeGeometry: Array.isArray(item.route?.geometry)
                       ? item.route.geometry.filter((p: any) => Array.isArray(p) && p.length === 2)
-                      : [],
+                      : undefined,
                   });
                 }
               });
             }
-          });
+          };
+
+          addLocations(routes.hospitals || [], 'hospital', 'h');
+          addLocations(routes.bunkers_shelters || [], 'shelter', 'b');
+          addLocations(routes.underground_parking || [], 'shelter', 'p');
 
           setSafeLocations(locations);
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('Evacuation routes fetch failed:', err);
           setSafeLocations([]);
         });
     } else if (!inDanger && hasTriggeredAlerts) {
       // Reset when leaving danger zone
       setHasTriggeredAlerts(false);
       setSafeLocations([]);
+      setSelectedLocation(null);
     }
   }, [userLocation, activeDisasters, hasTriggeredAlerts]);
 
@@ -300,13 +280,17 @@ export default function DisasterMap() {
       .filter((point): point is [number, number] => 
         Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number'
       )
-      .map((point) => [point[1], point[0]] as [number, number]);
+      .map((point) => [point[1], point[0]] as [number, number]); // [lon, lat] → [lat, lon] for Leaflet
   }, [selectedLocation]);
 
   const center = userLocation || { lat: 19.0760, lon: 72.8777 };
 
   if (!userLocation) {
-    return <div className="w-full h-full flex items-center justify-center text-gray-500 text-xl">Getting location...</div>;
+    return (
+      <div className="w-full h-full flex items-center justify-center text-gray-500 text-xl">
+        Getting location...
+      </div>
+    );
   }
 
   return (
@@ -366,7 +350,7 @@ export default function DisasterMap() {
         </div>
       )}
 
-      {/* AR Navigation Button - Bottom Left */}
+      {/* AR Navigation Button */}
       {safeLocations.length > 0 && (
         <button
           onClick={() => {
@@ -388,7 +372,7 @@ export default function DisasterMap() {
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapController center={center} />
 
-        {/* Threat Circles from Admin */}
+        {/* Threat Circles */}
         {activeDisasters.map((disaster) => (
           <Circle
             key={disaster.id}

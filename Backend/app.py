@@ -1,15 +1,15 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
 import uvicorn
 import os
 from datetime import datetime
 
-# Existing alerts
+# Existing imports
 from Asycn_Alerts.alerts import send_parallel_alerts, logger
-
-# Evacuation logic import
 from evacuation_system.main import find_evacuation_routes
+
 
 app = FastAPI(
     title="DISHA - Disaster Intelligence Safety & Help Application",
@@ -18,45 +18,43 @@ app = FastAPI(
 )
 
 # -----------------------------
-# ✅ ENHANCED CORS POLICY FOR RENDER
+# CORS Configuration (Works perfectly on Render)
 # -----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with frontend URL in production
+    allow_origins=["*"],  # Restrict to your frontend domain in production
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly include OPTIONS
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
-    max_age=3600,  # Cache preflight requests for 1 hour
+    max_age=3600,
 )
 
-# -----------------------------
-# ✅ EXPLICIT OPTIONS HANDLERS (FIX FOR 405 ERRORS)
-# -----------------------------
-@app.options("/api/alerts/trigger")
-async def options_alerts_handler():
-    return JSONResponse(
-        content={"message": "OK"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
-
-@app.options("/api/evacuation/trigger")
-async def options_evacuation_handler():
-    return JSONResponse(
-        content={"message": "OK"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
 
 # -----------------------------
-# Root & Health
+# Pydantic Models
+# -----------------------------
+class EvacuationRequest(BaseModel):
+    user_id: str = Field(..., description="Unique identifier for the user")
+    user_lat: float = Field(..., description="Latitude of user's location")
+    user_lon: float = Field(..., description="Longitude of user's location")
+    radius_km: float = Field(10.0, ge=0.1, le=50, description="Search radius in kilometers")
+
+    @validator('user_lat')
+    def validate_latitude(cls, v):
+        if not (-90 <= v <= 90):
+            raise ValueError('Latitude must be between -90 and 90')
+        return v
+
+    @validator('user_lon')
+    def validate_longitude(cls, v):
+        if not (-180 <= v <= 180):
+            raise ValueError('Longitude must be between -180 and 180')
+        return v
+
+
+# -----------------------------
+# Root & Health Endpoints
 # -----------------------------
 @app.get("/")
 def read_root():
@@ -65,8 +63,8 @@ def read_root():
         "status": "active",
         "version": "1.0.0",
         "endpoints": {
-            "trigger_alerts": "/api/alerts/trigger",
-            "trigger_evacuation": "/api/evacuation/trigger",
+            "trigger_alerts": "POST /api/alerts/trigger",
+            "trigger_evacuation": "POST /api/evacuation/trigger",
             "health": "/health"
         }
     }
@@ -79,7 +77,6 @@ def health_check():
         os.environ.get('TWILIO_AUTH_TOKEN'),
         os.environ.get('TWILIO_PHONE_NUMBER')
     ])
-
     return {
         "status": "healthy" if twilio_configured else "configuration_incomplete",
         "twilio_configured": twilio_configured,
@@ -89,17 +86,16 @@ def health_check():
 
 
 # -----------------------------
-# Twilio Alerts
+# Alert Trigger Endpoint (Now POST)
 # -----------------------------
-@app.get("/api/alerts/trigger")
-def trigger_alerts():
+@app.post("/api/alerts/trigger")
+async def trigger_alerts():
     try:
         twilio_configured = all([
             os.environ.get('TWILIO_ACCOUNT_SID'),
             os.environ.get('TWILIO_AUTH_TOKEN'),
             os.environ.get('TWILIO_PHONE_NUMBER')
         ])
-
         if not twilio_configured:
             raise HTTPException(
                 status_code=500,
@@ -124,8 +120,7 @@ def trigger_alerts():
             }
         ]
 
-        logger.info("Alert trigger received via API")
-
+        logger.info("Alert trigger received via API (POST)")
         results = send_parallel_alerts(
             contacts,
             max_workers=5,
@@ -137,7 +132,6 @@ def trigger_alerts():
         for result in results:
             calls = result.get('calls', [])
             successful_calls = sum(1 for c in calls if c.get('success'))
-
             formatted_results.append({
                 "phone": result.get('phone'),
                 "total_calls": len(calls),
@@ -160,38 +154,26 @@ def trigger_alerts():
 
 
 # -----------------------------
-# Evacuation Routes
+# Evacuation Routes Endpoint
 # -----------------------------
 @app.post("/api/evacuation/trigger")
-async def trigger_evacuation(
-    user_id: str = Body(..., embed=True),
-    user_lat: float = Body(..., embed=True),
-    user_lon: float = Body(..., embed=True),
-    radius_km: float = Body(10.0, embed=True),
-):
+async def trigger_evacuation(request: EvacuationRequest):
     try:
-        if not (-90 <= user_lat <= 90):
-            raise HTTPException(status_code=400, detail="Invalid latitude.")
-        if not (-180 <= user_lon <= 180):
-            raise HTTPException(status_code=400, detail="Invalid longitude.")
-        if radius_km <= 0 or radius_km > 50:
-            raise HTTPException(status_code=400, detail="Radius must be between 0 and 50 km.")
-
         logger.info(
-            f"Evacuation request for user {user_id} "
-            f"at ({user_lat}, {user_lon}), radius {radius_km}km"
+            f"Evacuation request for user {request.user_id} "
+            f"at ({request.user_lat}, {request.user_lon}), radius {request.radius_km}km"
         )
 
         evacuation_data = await find_evacuation_routes(
-            user_lat=user_lat,
-            user_lon=user_lon,
-            radius_km=radius_km,
+            user_lat=request.user_lat,
+            user_lon=request.user_lon,
+            radius_km=request.radius_km,
             max_per_category=2
         )
 
         return JSONResponse(content={
             "status": "success",
-            "user_id": user_id,
+            "user_id": request.user_id,
             "alert_id": evacuation_data["alert_id"],
             "timestamp": datetime.now().isoformat(),
             "evacuation_routes": evacuation_data["results"]
@@ -211,10 +193,10 @@ async def trigger_evacuation(
 # Run Server (Render Compatible)
 # -----------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # ✅ Render uses PORT env variable
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
-        "app:app",
+        "app:app",  # This assumes the file is named app.py
         host="0.0.0.0",
         port=port,
-        reload=True
+        reload=False  # Disable reload in production (Render)
     )
