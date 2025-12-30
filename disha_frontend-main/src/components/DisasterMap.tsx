@@ -72,7 +72,6 @@ export default function DisasterMap() {
   const [safeLocations, setSafeLocations] = useState<SafeLocation[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<SafeLocation | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const oscillatorRef = useRef<OscillatorNode | null>(null);
@@ -86,7 +85,7 @@ export default function DisasterMap() {
     threat: useMemo(() => createCustomIcon(AlertTriangle, 'red'), []),
   };
 
-  // Pre-warm AudioContext for auto-play
+  // Pre-warm AudioContext to allow auto-play
   useEffect(() => {
     const initAudio = () => {
       if (!audioContextRef.current) {
@@ -113,11 +112,14 @@ export default function DisasterMap() {
     };
   }, []);
 
-  // Urgent buzzing sound
+  // Buzzing alarm ONLY when in danger zone
   useEffect(() => {
     if (!isInDangerZone || !audioContextRef.current) {
       if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
-      if (oscillatorRef.current) oscillatorRef.current.stop();
+      if (oscillatorRef.current) {
+        oscillatorRef.current.stop();
+        oscillatorRef.current = null;
+      }
       return;
     }
 
@@ -162,30 +164,30 @@ export default function DisasterMap() {
     }
   }, []);
 
-  // Poll active disasters from DISHA dashboard backend (Render)
+  // Poll active disasters from dashboard backend
   useEffect(() => {
     if (!userLocation) return;
 
     const fetchActiveDisasters = async () => {
       try {
         const res = await fetch('https://disha-9gu7.onrender.com/disaster/active');
-        if (!res.ok) throw new Error('Failed to fetch active disasters');
+        if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         const disasters = data.active_disasters || [];
         setActiveDisasters(disasters);
       } catch (err) {
-        console.error('Error fetching active disasters:', err);
-        setError('No connection to disaster control center');
+        console.error('Failed to fetch active disasters');
+        setActiveDisasters([]);
       }
     };
 
     fetchActiveDisasters();
-    const interval = setInterval(fetchActiveDisasters, 5000); // Every 5 seconds
+    const interval = setInterval(fetchActiveDisasters, 5000);
 
     return () => clearInterval(interval);
   }, [userLocation]);
 
-  // Check danger + trigger evacuation/alerts
+  // Check if user is in any active disaster zone
   useEffect(() => {
     if (!userLocation || activeDisasters.length === 0) {
       setIsInDangerZone(false);
@@ -201,8 +203,8 @@ export default function DisasterMap() {
     setIsInDangerZone(inDanger);
 
     if (inDanger) {
-      // Trigger local alerts
-      fetch('http://127.0.0.1:8000/api/alerts/trigger', {
+      // Trigger emergency alerts
+      fetch('https://disha-backend-2b4i.onrender.com/api/alerts/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,7 +215,7 @@ export default function DisasterMap() {
       }).catch(() => {});
 
       // Fetch evacuation routes
-      fetch('http://127.0.0.1:8000/api/evacuation/trigger', {
+      fetch('https://disha-backend-2b4i.onrender.com/api/evacuation/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,10 +225,7 @@ export default function DisasterMap() {
           radius_km: 10,
         }),
       })
-        .then(async (res) => {
-          if (!res.ok) throw new Error('Evacuation failed');
-          return res.json();
-        })
+        .then(async (res) => res.json())
         .then((data) => {
           const routes = data?.evacuation_routes?.routes || {};
           const locations: SafeLocation[] = [];
@@ -273,11 +272,9 @@ export default function DisasterMap() {
           });
 
           setSafeLocations(locations);
-          setError(null);
         })
-        .catch((err) => {
-          console.error('Evacuation error:', err);
-          setError('No safe routes available');
+        .catch(() => {
+          setSafeLocations([]);
         });
     } else {
       setSafeLocations([]);
@@ -304,24 +301,25 @@ export default function DisasterMap() {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
-      {/* Top Banner */}
-      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-red-600 to-orange-600 text-white text-center py-4 font-bold shadow-2xl flex items-center justify-center gap-3">
-        <Volume2 className="animate-pulse" size={32} />
-        {isInDangerZone ? 'DANGER ZONE ACTIVE' : 'SAFE'}
-        <br />
-        <span className="text-base">
-          {activeDisasters.length > 0 
-            ? `${activeDisasters.length} active threat${activeDisasters.length > 1 ? 's' : ''}`
-            : 'No active threats'}
-        </span>
+      {/* Top Banner - Only shows danger when active */}
+      <div className="absolute top-0 left-0 right-0 z-20 text-white text-center py-4 font-bold shadow-2xl flex items-center justify-center gap-3">
+        {isInDangerZone ? (
+          <div className="bg-gradient-to-r from-red-600 to-orange-600 w-full">
+            <Volume2 className="animate-pulse inline" size={32} />
+            DANGER ZONE ACTIVE
+            <br />
+            <span className="text-base">
+              {activeDisasters.length} active threat{activeDisasters.length > 1 ? 's' : ''}
+            </span>
+          </div>
+        ) : (
+          <div className="bg-gradient-to-r from-green-600 to-green-500 w-full">
+            SAFE ZONE
+            <br />
+            <span className="text-base">No active threats</span>
+          </div>
+        )}
       </div>
-
-      {/* Error */}
-      {error && (
-        <div className="absolute top-24 left-4 z-20 bg-red-100 text-red-700 px-4 py-3 rounded-lg shadow-lg">
-          {error}
-        </div>
-      )}
 
       {/* Safe Locations Panel */}
       {safeLocations.length > 0 && (
@@ -362,7 +360,7 @@ export default function DisasterMap() {
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapController center={center} />
 
-        {/* DYNAMIC THREAT CIRCLES FROM ADMIN DASHBOARD */}
+        {/* ONLY show threat circles when admin has triggered them */}
         {activeDisasters.map((disaster) => (
           <Circle
             key={disaster.id}
