@@ -1,9 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Navigation, MapPin, Clock, Route } from 'lucide-react';
-import { EvacuationRoute, Location } from '../types';
+import { Navigation, MapPin, Clock } from 'lucide-react';
+
+interface Destination {
+  name: string;
+  lat: number;
+  lon: number;
+  distance_km: number;
+  duration_min?: number;
+}
+
+interface EvacuationRoute {
+  id: string;
+  type: 'hospital' | 'shelter';
+  destination: Destination;
+}
 
 interface EvacuationRoutesProps {
-  userLocation: Location | null;
+  userLocation: { lat: number; lon: number } | null;
   isInDanger: boolean;
 }
 
@@ -24,152 +37,150 @@ export default function EvacuationRoutes({ userLocation, isInDanger }: Evacuatio
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/evacuation/trigger', {
+      const response = await fetch('http://127.0.0.1:8000/api/evacuation/trigger', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'user123',
+          user_id: 'web_user',
           user_lat: userLocation.lat,
           user_lon: userLocation.lon,
           radius_km: 10,
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.routes) {
-          setRoutes(data.routes);
-        }
-      } else {
-        generateMockRoutes();
-      }
+      if (!response.ok) throw new Error('API failed');
+
+      const data = await response.json();
+
+      const hospitals = data.evacuation_routes?.routes?.hospitals || [];
+      const shelters = data.evacuation_routes?.routes?.bunkers_shelters || [];
+
+      const allRoutes: EvacuationRoute[] = [];
+
+      hospitals.forEach((h: any, i: number) => {
+        allRoutes.push({
+          id: `hospital-${i}`,
+          type: 'hospital',
+          destination: {
+            name: h.safe_location || 'Hospital',
+            lat: h.lat,
+            lon: h.lon,
+            distance_km: h.distance_km || 0,
+            duration_min: h.route?.duration_s ? Math.round(h.route.duration_s / 60) : undefined,
+          },
+        });
+      });
+
+      shelters.forEach((s: any, i: number) => {
+        allRoutes.push({
+          id: `shelter-${i}`,
+          type: 'shelter',
+          destination: {
+            name: s.safe_location || 'Safe Shelter',
+            lat: s.lat,
+            lon: s.lon,
+            distance_km: s.distance_km || 0,
+            duration_min: s.route?.duration_s ? Math.round(s.route.duration_s / 60) : undefined,
+          },
+        });
+      });
+
+      allRoutes.sort((a, b) => a.destination.distance_km - b.destination.distance_km);
+      setRoutes(allRoutes.slice(0, 4)); // Show top 4 for clean layout
     } catch (error) {
-      console.error('Failed to fetch evacuation routes:', error);
-      generateMockRoutes();
+      console.error('Failed to load safe routes:', error);
+      setRoutes([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const generateMockRoutes = () => {
-    if (!userLocation) return;
-
-    const mockRoutes: EvacuationRoute[] = [
-      {
-        id: 'route1',
-        type: 'primary',
-        coordinates: [
-          [userLocation.lat, userLocation.lon],
-          [userLocation.lat + 0.01, userLocation.lon + 0.01],
-          [userLocation.lat + 0.02, userLocation.lon + 0.015],
-          [userLocation.lat + 0.03, userLocation.lon + 0.02],
-        ],
-        destination: {
-          name: 'Community Shelter A',
-          lat: userLocation.lat + 0.03,
-          lon: userLocation.lon + 0.02,
-          distance: 3.2,
-          eta: 8,
-        },
-      },
-      {
-        id: 'route2',
-        type: 'alternative',
-        coordinates: [
-          [userLocation.lat, userLocation.lon],
-          [userLocation.lat - 0.005, userLocation.lon + 0.015],
-          [userLocation.lat - 0.01, userLocation.lon + 0.025],
-          [userLocation.lat - 0.015, userLocation.lon + 0.03],
-        ],
-        destination: {
-          name: 'Emergency Bunker B',
-          lat: userLocation.lat - 0.015,
-          lon: userLocation.lon + 0.03,
-          distance: 4.1,
-          eta: 12,
-        },
-      },
-    ];
-
-    setRoutes(mockRoutes);
+  const handleNavigate = (lat: number, lon: number) => {
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=walking`;
+    window.open(url, '_blank');
   };
 
-  const handleNavigate = (destination: { lat: number; lon: number; name: string }) => {
-    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destination.lat},${destination.lon}`;
-    window.open(googleMapsUrl, '_blank');
-  };
+  if (!isInDanger) return null;
 
-  if (!isInDanger || routes.length === 0) return null;
+  if (loading) {
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-6 pointer-events-none">
+        <div className="max-w-lg mx-auto pointer-events-auto">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 text-center">
+            <div className="animate-spin rounded-full h-9 w-9 border-4 border-red-600 border-t-transparent mx-auto" />
+            <p className="mt-3 text-gray-700 font-medium">Finding safe routes...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (routes.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
-      <div className="flex items-center space-x-2 mb-3">
-        <Route className="w-5 h-5 text-blue-600" />
-        <h3 className="font-bold text-lg text-gray-800">Evacuation Routes</h3>
-      </div>
+    <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-6 pointer-events-none">
+      <div className="max-w-lg mx-auto pointer-events-auto">
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          {/* Compact Header */}
+          <div className="bg-red-600 text-white px-5 py-3 flex items-center justify-center gap-2">
+            <span className="font-bold text-lg">Nearest Safe Zones</span>
+          </div>
 
-      {loading ? (
-        <div className="text-center py-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-sm text-gray-600 mt-2">Finding safe routes...</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {routes.map((route) => (
-            <div
-              key={route.id}
-              className={`border-2 ${
-                route.type === 'primary' ? 'border-green-500' : 'border-blue-500'
-              } rounded-lg p-3 hover:shadow-md transition-shadow`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-semibold ${
-                        route.type === 'primary'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      {route.type === 'primary' ? 'PRIMARY ROUTE' : 'ALTERNATIVE'}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2 text-gray-700">
-                    <MapPin className="w-4 h-4" />
-                    <span className="font-semibold">{route.destination.name}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
-                <div className="flex items-center space-x-1">
-                  <Navigation className="w-4 h-4" />
-                  <span>{route.destination.distance.toFixed(1)} km</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <Clock className="w-4 h-4" />
-                  <span>{route.destination.eta} min</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => handleNavigate(route.destination)}
-                className={`w-full ${
-                  route.type === 'primary'
-                    ? 'bg-green-500 hover:bg-green-600'
-                    : 'bg-blue-500 hover:bg-blue-600'
-                } text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2`}
+          {/* Clean List */}
+          <div className="p-4 space-y-4">
+            {routes.map((route, index) => (
+              <div
+                key={route.id}
+                className={`rounded-xl p-4 ${
+                  index === 0
+                    ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-500'
+                    : 'bg-gray-50'
+                }`}
               >
-                <Navigation className="w-4 h-4" />
-                <span>Navigate Now</span>
-              </button>
-            </div>
-          ))}
+                {/* Name + Type Badge */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <MapPin className="w-5 h-5 text-gray-600" />
+                    <h4 className="font-semibold text-gray-900">{route.destination.name}</h4>
+                  </div>
+                  {index === 0 && (
+                    <span className="text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-700">
+                      RECOMMENDED
+                    </span>
+                  )}
+                </div>
+
+                {/* Distance & Time */}
+                <div className="flex gap-5 text-sm text-gray-600 mb-4">
+                  <div className="flex items-center gap-1.5">
+                    <Navigation className="w-4 h-4" />
+                    <span>{route.destination.distance_km.toFixed(1)} km</span>
+                  </div>
+                  {route.destination.duration_min && (
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4" />
+                      <span>~{route.destination.duration_min} min</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Navigate Button */}
+                <button
+                  onClick={() => handleNavigate(route.destination.lat, route.destination.lon)}
+                  className={`w-full py-3 rounded-lg font-bold text-white flex items-center justify-center gap-2 transition-all ${
+                    index === 0
+                      ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 shadow-md'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  <Navigation className="w-5 h-5" />
+                  Navigate with Google Maps
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

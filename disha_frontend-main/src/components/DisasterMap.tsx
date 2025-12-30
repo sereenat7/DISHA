@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Circle, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MapPin, Cross, Shield, AlertTriangle, ChevronDown, ChevronUp, Volume2, Navigation } from 'lucide-react';
+import { MapPin, Cross, Shield, AlertTriangle, ChevronDown, ChevronUp, Volume2, Navigation, Phone } from 'lucide-react';
 
 interface Location {
   lat: number;
@@ -15,7 +15,8 @@ interface SafeLocation {
   lat: number;
   lon: number;
   type: 'hospital' | 'shelter';
-  routeGeometry?: number[][]; // [[lon, lat], ...] from backend
+  distance_km?: number;
+  routeGeometry?: number[][]; // [[lon, lat], ...]
 }
 
 interface ActiveDisaster {
@@ -90,7 +91,7 @@ export default function DisasterMap() {
     threat: useMemo(() => createCustomIcon(AlertTriangle, 'red'), []),
   };
 
-  // Pre-warm AudioContext to allow auto-play
+  // Pre-warm AudioContext for alarm sound
   useEffect(() => {
     const initAudio = () => {
       if (!audioContextRef.current) {
@@ -117,7 +118,7 @@ export default function DisasterMap() {
     };
   }, []);
 
-  // Buzzing alarm ONLY when in danger zone
+  // Alarm sound when in danger
   useEffect(() => {
     if (!isInDangerZone || !audioContextRef.current) {
       if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
@@ -161,7 +162,7 @@ export default function DisasterMap() {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => setUserLocation({ lat: 19.1200, lon: 72.8702 }), // Fallback: Mumbai
+        () => setUserLocation({ lat: 19.1200, lon: 72.8702 }),
         { enableHighAccuracy: true }
       );
     } else {
@@ -169,18 +170,18 @@ export default function DisasterMap() {
     }
   }, []);
 
-  // Poll active disasters from dashboard backend
+  // Poll active disasters
   useEffect(() => {
     if (!userLocation) return;
 
     const fetchActiveDisasters = async () => {
       try {
         const res = await fetch('https://disha-9gu7.onrender.com/disaster/active');
-        if (!res.ok) throw new Error('Failed to fetch disasters');
+        if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         setActiveDisasters(data.active_disasters || []);
       } catch (err) {
-        console.error('Failed to fetch active disasters:', err);
+        console.error('Failed to fetch disasters:', err);
         setActiveDisasters([]);
       }
     };
@@ -190,7 +191,7 @@ export default function DisasterMap() {
     return () => clearInterval(interval);
   }, [userLocation]);
 
-  // Check danger zone + trigger alerts/evacuation ONLY ONCE when entering
+  // Danger detection + trigger alerts & evacuation
   useEffect(() => {
     if (!userLocation || activeDisasters.length === 0) {
       setIsInDangerZone(false);
@@ -199,7 +200,7 @@ export default function DisasterMap() {
 
     const inDanger = activeDisasters.some((disaster) => {
       const distKm = calculateDistance(userLocation, { lat: disaster.latitude, lon: disaster.longitude });
-      return distKm <= (disaster.radius_meters / 1000);
+      return distKm * 1000 <= disaster.radius_meters;
     });
 
     setIsInDangerZone(inDanger);
@@ -207,15 +208,27 @@ export default function DisasterMap() {
     if (inDanger && !hasTriggeredAlerts) {
       setHasTriggeredAlerts(true);
 
-      const backendUrl = 'https://disha-backend-2b4i.onrender.com';
+      const backendUrl = 'http://127.0.0.1:8000'; // Change to production URL when deploying
 
-      // 1. Trigger Alerts (POST, no body needed)
+      // 1. Trigger CALL ALERTS to emergency contacts
       fetch(`${backendUrl}/api/alerts/trigger`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }).catch((err) => console.error('Alert trigger failed:', err));
+        headers: {
+          'accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}), // Empty body as per your curl example
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log('Call alerts triggered:', data);
+          if (data.status === 'completed') {
+            // Optional: show a toast/notification in UI later
+          }
+        })
+        .catch((err) => console.error('Call alert trigger failed:', err));
 
-      // 2. Trigger Evacuation Routes
+      // 2. Trigger evacuation routes
       fetch(`${backendUrl}/api/evacuation/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -223,64 +236,65 @@ export default function DisasterMap() {
           user_id: 'web_user',
           user_lat: userLocation.lat,
           user_lon: userLocation.lon,
-          radius_km: 10.0,
+          radius_km: 10,
         }),
       })
         .then(async (res) => {
-          if (!res.ok) throw new Error(`Evacuation API error: ${res.status}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
         })
         .then((data) => {
-          const routes = data?.evacuation_routes || {};
-          const locations: SafeLocation[] = [];
+          const hospitals = data.evacuation_routes?.routes?.hospitals || [];
+          const shelters = data.evacuation_routes?.routes?.bunkers_shelters || [];
 
-          const addLocations = (items: any[], type: 'hospital' | 'shelter', prefix: string) => {
-            if (Array.isArray(items)) {
-              items.forEach((item: any, i: number) => {
-                if (typeof item.lat === 'number' && typeof item.lon === 'number') {
-                  locations.push({
-                    id: `${prefix}-${Date.now()}-${i}`,
-                    name: item.safe_location || (type === 'hospital' ? 'Hospital' : 'Safe Shelter'),
-                    lat: item.lat,
-                    lon: item.lon,
-                    type,
-                    routeGeometry: Array.isArray(item.route?.geometry)
-                      ? item.route.geometry.filter((p: any) => Array.isArray(p) && p.length === 2)
-                      : undefined,
-                  });
-                }
-              });
-            }
-          };
+          const allSafe: SafeLocation[] = [];
 
-          addLocations(routes.hospitals || [], 'hospital', 'h');
-          addLocations(routes.bunkers_shelters || [], 'shelter', 'b');
-          addLocations(routes.underground_parking || [], 'shelter', 'p');
+          hospitals.forEach((item: any, i: number) => {
+            allSafe.push({
+              id: `h-${Date.now()}-${i}`,
+              name: item.safe_location || 'Hospital',
+              lat: item.lat,
+              lon: item.lon,
+              type: 'hospital',
+              distance_km: item.distance_km,
+              routeGeometry: item.route?.geometry,
+            });
+          });
 
-          setSafeLocations(locations);
+          shelters.forEach((item: any, i: number) => {
+            allSafe.push({
+              id: `s-${Date.now()}-${i}`,
+              name: item.safe_location || 'Safe Shelter',
+              lat: item.lat,
+              lon: item.lon,
+              type: 'shelter',
+              distance_km: item.distance_km,
+              routeGeometry: item.route?.geometry,
+            });
+          });
+
+          allSafe.sort((a, b) => (a.distance_km || 999) - (b.distance_km || 999));
+          setSafeLocations(allSafe.length > 0 ? allSafe : []);
         })
         .catch((err) => {
-          console.error('Evacuation routes fetch failed:', err);
+          console.error('Evacuation API failed:', err);
           setSafeLocations([]);
         });
     } else if (!inDanger && hasTriggeredAlerts) {
-      // Reset when leaving danger zone
+      // User left danger zone
       setHasTriggeredAlerts(false);
       setSafeLocations([]);
       setSelectedLocation(null);
     }
   }, [userLocation, activeDisasters, hasTriggeredAlerts]);
 
+  // Selected route polyline (real road path)
   const selectedRouteCoords = useMemo<[number, number][]>(() => {
-    if (!selectedLocation?.routeGeometry || !Array.isArray(selectedLocation.routeGeometry)) {
-      return [];
-    }
+    if (!selectedLocation?.routeGeometry) return [];
 
     return selectedLocation.routeGeometry
-      .filter((point): point is [number, number] => 
-        Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number'
-      )
-      .map((point) => [point[1], point[0]] as [number, number]); // [lon, lat] → [lat, lon] for Leaflet
+      .filter((point): point is [number, number] => Array.isArray(point) && point.length === 2)
+      .map(([lon, lat]) => [lat, lon] as [number, number]);
   }, [selectedLocation]);
 
   const center = userLocation || { lat: 19.0760, lon: 72.8777 };
@@ -298,9 +312,10 @@ export default function DisasterMap() {
       {/* Top Banner */}
       <div className="absolute top-0 left-0 right-0 z-20 text-white text-center py-4 font-bold shadow-2xl flex items-center justify-center gap-3">
         {isInDangerZone ? (
-          <div className="bg-gradient-to-r from-red-600 to-orange-600 w-full">
+          <div className="bg-gradient-to-r from-red-600 to-orange-600 w-full animate-pulse">
             <Volume2 className="animate-pulse inline" size={32} />
-            DANGER ZONE ACTIVE
+            <Phone className="animate-pulse inline ml-2" size={28} />
+            DANGER ZONE ACTIVE - CALLS SENT
             <br />
             <span className="text-base">
               {activeDisasters.length} active threat{activeDisasters.length > 1 ? 's' : ''}
@@ -316,10 +331,10 @@ export default function DisasterMap() {
       </div>
 
       {/* Safe Locations Panel */}
-      {safeLocations.length > 0 && (
-        <div className="absolute top-24 right-4 z-20 bg-white rounded-2xl shadow-2xl w-64 max-h-[75vh] overflow-hidden flex flex-col">
+      {isInDangerZone && safeLocations.length > 0 && (
+        <div className="absolute top-24 right-4 z-20 bg-white rounded-2xl shadow-2xl w-72 max-h-[75vh] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between p-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-2xl">
-            <h3 className="font-bold text-base">Safe Locations ({safeLocations.length})</h3>
+            <h3 className="font-bold text-base">Nearest Safe Locations ({safeLocations.length})</h3>
             <button onClick={() => setPanelOpen(!panelOpen)}>
               {panelOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
@@ -336,11 +351,13 @@ export default function DisasterMap() {
                       : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <span className="text-2xl">{loc.type === 'hospital' ? '🏥' : '🏠'}</span>
-                    <div>
+                    <div className="flex-1">
                       <p className="font-semibold text-sm truncate">{loc.name}</p>
-                      <p className="text-xs text-gray-600">{loc.lat.toFixed(4)}, {loc.lon.toFixed(4)}</p>
+                      <p className="text-xs text-gray-600">
+                        {(loc.distance_km || 0).toFixed(2)} km away
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -351,12 +368,11 @@ export default function DisasterMap() {
       )}
 
       {/* AR Navigation Button */}
-      {safeLocations.length > 0 && (
+      {isInDangerZone && safeLocations.length > 0 && (
         <button
           onClick={() => {
             if (selectedLocation) {
-              const url = `https://majestic-cactus-a3fab7.netlify.app/`;
-              window.open(url, '_blank');
+              window.open('https://majestic-cactus-a3fab7.netlify.app/', '_blank');
             } else {
               alert('Please select a safe location first to start AR Navigation');
             }
@@ -364,7 +380,7 @@ export default function DisasterMap() {
           className="absolute bottom-6 left-6 z-20 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-2xl flex items-center gap-3 transition-all hover:scale-105"
         >
           <Navigation size={28} />
-          AR Navigation
+          Start AR Navigation
         </button>
       )}
 
@@ -395,29 +411,35 @@ export default function DisasterMap() {
           </Circle>
         ))}
 
+        {/* User Marker */}
         <Marker position={[userLocation.lat, userLocation.lon]} icon={icons.user}>
           <Popup>Your Location</Popup>
         </Marker>
 
+        {/* Safe Location Markers */}
         {safeLocations.map((loc) => (
           <Marker
             key={loc.id}
             position={[loc.lat, loc.lon]}
             icon={loc.type === 'hospital' ? icons.hospital : icons.shelter}
           >
-            <Popup>{loc.name}</Popup>
+            <Popup>
+              <strong>{loc.name}</strong>
+              <br />
+              {loc.distance_km ? `${loc.distance_km.toFixed(2)} km away` : ''}
+            </Popup>
           </Marker>
         ))}
 
+        {/* Selected Real Route */}
         {selectedRouteCoords.length > 1 && (
           <Polyline
             positions={selectedRouteCoords}
             pathOptions={{
               color: '#16a34a',
-              weight: 10,
-              opacity: 1,
-              dashArray: '15, 10',
-              className: 'animate-pulse',
+              weight: 8,
+              opacity: 0.9,
+              dashArray: '10, 10',
             }}
           />
         )}

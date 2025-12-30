@@ -107,17 +107,17 @@ async def trigger_alerts():
                 'phone': '+918850755760',
                 'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
                 'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
-            },
-            {
-                'phone': '+919529685725',
-                'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
-                'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
-            },
-            {
-                'phone': '+919322945843',
-                'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
-                'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
             }
+            # {
+            #     'phone': '+919529685725',
+            #     'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
+            #     'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
+            # },
+            # {
+            #     'phone': '+919322945843',
+            #     'twiml_url': 'http://demo.twilio.com/docs/voice.xml',
+            #     'sms_message': 'URGENT: Emergency alert from Government of India via DISHA. Stay safe!'
+            # }
         ]
 
         logger.info("Alert trigger received via API (POST)")
