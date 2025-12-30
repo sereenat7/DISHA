@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AR.js A-Frame Location-based (15 Coordinates)</title>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script type='text/javascript' src='https://raw.githack.com/AR-js-org/AR.js/3.4.5/three.js/build/ar-threex-location-only.js'></script>
+    <script type='text/javascript' src='https://raw.githack.com/AR-js-org/AR.js/3.4.5/aframe/build/aframe-ar.js'></script>
+</head>
+<body>
+    <a-scene vr-mode-ui="enabled: false" arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false" renderer="antialias: true; alpha: true">
+        <!-- AR Camera -->
+        <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
+
+        <!-- Replace spheres with pointer.glb -->
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.0446915; longitude: 72.82034250000001" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.044756; longitude: 72.820093" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.044829999999997; longitude: 72.8198745" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.044904; longitude: 72.819656" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.0449495; longitude: 72.8194685" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.044995; longitude: 72.819281" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.045005; longitude: 72.8192405" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.045015; longitude: 72.8192" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.0452665; longitude: 72.8193115" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.045518; longitude: 72.819423" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.045834; longitude: 72.8195375" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.04615; longitude: 72.819652" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.046339; longitude: 72.819708" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.046528; longitude: 72.819764" scale="10 10 10"></a-entity>
+        <a-entity gltf-model="pointer.glb" gps-new-entity-place="latitude: 19.046711000000002; longitude: 72.8199045" scale="10 10 10"></a-entity>
+    </a-scene>
+</body>
+</html>
