@@ -1,0 +1,4 @@
+# file: /Users/sereenathomas/Desktop/DISHA/Backend/evacuation_system/main.py
+# hypothesis_version: 6.148.8
+
+[10.0, 13.405, 15.0, 30.0, 52.52, 200, 1000, 6371, '__main__', 'alert_id', 'amenity', 'building', 'bunker', 'bunkers_shelters', 'category', 'coordinates', 'distance', 'distance_km', 'distance_m', 'duration', 'duration_s', 'elements', 'geometry', 'google_maps', 'hospital', 'hospitals', 'lat', 'lon', 'name', 'parking', 'results', 'route', 'routes', 'safe_location', 'search_radius_km', 'shelter', 'tags', 'underground', 'underground_parking', 'user_position']
