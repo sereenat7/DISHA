@@ -59,6 +59,31 @@ class MCPToolError(DisasterResponseError):
         self.tool_endpoint = tool_endpoint
 
 
+class ConfigurationError(DisasterResponseError):
+    """Raised when configuration is invalid or missing."""
+    pass
+
+
+class MCPToolExecutionError(MCPToolError):
+    """Raised when MCP tool execution fails."""
+
+    def __init__(
+        self,
+        message: str,
+        execution_time_ms: Optional[int] = None,
+        retry_count: Optional[int] = None,
+        **kwargs
+    ):
+        super().__init__(message, **kwargs)
+        self.execution_time_ms = execution_time_ms
+        self.retry_count = retry_count
+
+
+class MCPToolTimeoutError(MCPToolError):
+    """Raised when MCP tool execution times out."""
+    pass
+
+
 class DataValidationError(DisasterResponseError):
     """Raised when data validation fails."""
 
