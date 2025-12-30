@@ -372,7 +372,7 @@ export default function DisasterMap() {
         <button
           onClick={() => {
             if (selectedLocation) {
-              window.open('thriving-beignet-016514.netlify.app/', '_blank');
+              window.open('arapphack.netlify.app/', '_blank');
             } else {
               alert('Please select a safe location first to start AR Navigation');
             }
