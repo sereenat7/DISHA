@@ -5,6 +5,7 @@ import Dashboard from './components/Dashboard';
 import TriggerForm from './components/TriggerForm';
 import MapContainer from './components/MapContainer';
 import NewsList from './components/NewsList';
+import APIDocumentation from './components/APIDocumentation';
 import { ViewType, Disaster } from './types';
 
 function App() {
@@ -32,6 +33,8 @@ function App() {
         );
       case 'news':
         return <NewsList />;
+      case 'developers':
+        return <APIDocumentation />;
       default:
         return <Dashboard disasters={disasters} />;
     }
@@ -45,6 +48,8 @@ function App() {
         return 'Trigger Disaster';
       case 'news':
         return 'Disaster News Feed';
+      case 'developers':
+        return 'API Documentation';
       default:
         return 'Dashboard';
     }
@@ -58,6 +63,8 @@ function App() {
         return 'Create and manage disaster events';
       case 'news':
         return 'Latest updates and reports';
+      case 'developers':
+        return 'Integrate DISHA into your applications';
       default:
         return '';
     }

@@ -41,4 +41,4 @@ export interface NewsResponse {
   disasters: NewsItem[];
 }
 
-export type ViewType = "home" | "trigger" | "news";
+export type ViewType = 'home' | 'trigger' | 'news' | 'developers';

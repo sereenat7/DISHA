@@ -1,4 +1,4 @@
-import { Home, AlertTriangle, Newspaper } from 'lucide-react';
+import { Home, AlertTriangle, Newspaper, Code2 } from 'lucide-react';
 import { ViewType } from '../types';
 
 interface SidebarProps {
@@ -11,6 +11,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
     { id: 'home' as ViewType, label: 'Home', icon: Home },
     { id: 'trigger' as ViewType, label: 'Trigger Disaster', icon: AlertTriangle },
     { id: 'news' as ViewType, label: 'News', icon: Newspaper },
+    { id: 'developers' as ViewType, label: 'Developers', icon: Code2 },
   ];
 
   return (
