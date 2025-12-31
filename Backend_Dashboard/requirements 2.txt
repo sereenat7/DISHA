@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+groq
+pydantic
+python-dotenv
+httpx
+fastapi
+uvicorn
+pydantic
+web3==6.11.3
+python-dotenv
