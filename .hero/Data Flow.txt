@@ -1,0 +1,30 @@
+flowchart TD
+    A[Disaster Event] --> B{Source}
+    B -->|Manual| C[Admin Trigger]
+    B -->|Automatic| D[Sensor/API]
+
+    C --> E[Disaster Manager]
+    D --> E
+
+    E --> F[Calculate Affected Radius]
+    F --> G[Query Users in Zone]
+    G --> H[Find Safe Locations]
+    H --> I[Run AI Distribution]
+
+    I --> J[Generate Routes]
+    J --> K{Alert Priority}
+
+    K -->|Critical| L[Twilio Voice Call]
+    K -->|High| M[Push Notification]
+    K -->|Medium| N[SMS]
+
+    L --> O[User Receives Alert]
+    M --> O
+    N --> O
+
+    O --> P[User Opens App]
+    P --> Q[AR Navigation Starts]
+    Q --> R[Real-time Tracking]
+    R --> S[Arrival at Safe Location]
+    S --> T[Mark User Safe]
+
